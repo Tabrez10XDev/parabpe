@@ -3,7 +3,7 @@
 ## Current state (2026-11-03)
 **Done:** N1 (repo skeleton), N2 (draft spec and interfaces), **N4 (Python reference + golden files)**, **N3 (data)**, **S1 (chunker + serial pre-tokenizer)** and **S2 (WordTable + NaiveSerial +
 writers + `train()`)** **S3 (IncrSerial + equivalence harness)** and **S4 (OMP pre-tokenizer + TSan CI job)**. Training works end to end
-with `--pretok serial|omp --merge naive-serial|incr-serial`; the parallel merge engines (S5–S7) are still stubs.
+with `--pretok serial|omp --merge naive-serial|incr-serial`; NaivePar (S7) works; IncrPar (S5/S6) is in progress.
 
 **N4 + Unicode pin (2026-10-31).** The plan for N4 → N3 → S1 was checked by an independent reviewer; its changes are
 folded into the S1/S2 cards in `docs/TASKS.md`.
@@ -159,6 +159,18 @@ Checked with `smoke` (real runs) and a synthetic CSV for the weak and threshold 
   AC). One 0.1 s run read 295 s, and two naive runs read 162 s and 553 s for 13 s of CPU (`pmset -g log` confirms
   Sleep/DarkWake). Runs during dark wake are also throttled: serial pretok on 10 MB took 0.22 s instead of 0.09 s.
   **S8 needs the Mac on mains power and awake.** Use `--require-ac`.
+
+**S7 (2026-11-03).** NaivePar in `src/merge_naive.cpp`: each merge recounts all pairs in parallel. Words are counted
+under `omp for schedule(dynamic,1024)` into per-thread maps, pre-bucketed by the low hash bits. Bucket b of every
+thread is reduced into shard b, which also finds its own best pair. The master then takes the best of the shard
+winners: `better_pair` is a total order on distinct pairs, so the result does not depend on the partition. The merge
+is applied with `parallel for` over words (each word is a disjoint range of `tokens`).
+- Tests: the golden test now runs parallel engines at threads {1,2,3,4,8,16}. The random-corpus test checks NaivePar
+  at 1/3/4/16 threads against NaiveSerial. The early-stop and empty-corpus tests cover every engine.
+  54/54 pass (Release and Debug with bounds checks).
+- Equivalence matrix: 0 mismatches on `tinystories.10M` (vocab 4000) and `wikitext.10M` (vocab 2000, 36/36).
+- Not timed yet: this session ran on battery with the Mac sleeping and throttling. NaivePar timings come from the
+  `naive` bench config in S8.
 
 **Next task:** G1 (profiling gate). It needs IncrSerial phase breakdowns on 100 MB / 1 GB (mostly in
 `docs/notes/profiling.md` already) and a **user decision** on how much effort S6 gets. S5 and S7 are unblocked and

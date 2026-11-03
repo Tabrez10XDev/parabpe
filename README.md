@@ -65,6 +65,6 @@ report/            LaTeX report
 | S4 | OMP pre-tokenizer | ✅ |
 | S5 | Parallel PairStats | ⬜ |
 | S6 | IncrPar | ⬜ |
-| S7 | NaivePar | ⬜ |
+| S7 | NaivePar | ✅ |
 | S8 | Benchmarks | ⬜ |
 | S9 | Report | ⬜ |

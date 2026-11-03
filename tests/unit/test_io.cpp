@@ -126,9 +126,9 @@ TEST(WordTable, FlattensBytes) {
   EXPECT_EQ(t.last_touched.size(), 3u);
 }
 
-class SerialEngines : public ::testing::TestWithParam<MergeStrategy> {};
+class Engines : public ::testing::TestWithParam<MergeStrategy> {};
 
-TEST_P(SerialEngines, StopsEarlyWhenNoPairsRemain) {
+TEST_P(Engines, StopsEarlyWhenNoPairsRemain) {
   TrainConfig cfg;
   cfg.vocab_size = 256 + 1 + 50;
   cfg.merge = GetParam();
@@ -139,7 +139,7 @@ TEST_P(SerialEngines, StopsEarlyWhenNoPairsRemain) {
   EXPECT_EQ(r.vocab.size(), 259u);
 }
 
-TEST_P(SerialEngines, EmptyCorpusGivesHeaderOnlyMerges) {
+TEST_P(Engines, EmptyCorpusGivesHeaderOnlyMerges) {
   TrainConfig cfg;
   cfg.vocab_size = 300;
   cfg.merge = GetParam();
@@ -148,12 +148,17 @@ TEST_P(SerialEngines, EmptyCorpusGivesHeaderOnlyMerges) {
   EXPECT_EQ(format_merges(r.merges, r.vocab), "#version: 0.2\n");
 }
 
-INSTANTIATE_TEST_SUITE_P(Engines, SerialEngines,
-                         ::testing::Values(MergeStrategy::NaiveSerial, MergeStrategy::IncrSerial));
+INSTANTIATE_TEST_SUITE_P(All, Engines,
+                         ::testing::Values(MergeStrategy::NaiveSerial, MergeStrategy::IncrSerial,
+                                           MergeStrategy::NaivePar));
 
-// IncrSerial against the NaiveSerial oracle on random small-alphabet corpora: long runs, repeated
-// pairs inside one word and many count ties stress the index, the stamps and the lazy heap.
-TEST(IncrSerial, MatchesNaiveOnRandomCorpora) {
+// Every other engine against the NaiveSerial oracle on random small-alphabet corpora: long runs,
+// repeated pairs inside one word and many count ties stress the index, the stamps and the lazy
+// heap (IncrSerial) and the bucketed reduction + max (parallel engines, at several thread counts).
+TEST(Engines, MatchNaiveOnRandomCorpora) {
+  const std::vector<std::pair<MergeStrategy, int>> engines = {
+      {MergeStrategy::IncrSerial, 1}, {MergeStrategy::NaivePar, 1}, {MergeStrategy::NaivePar, 3},
+      {MergeStrategy::NaivePar, 4},   {MergeStrategy::NaivePar, 16}};
   std::mt19937 rng(12345);
   for (int trial = 0; trial < 200; ++trial) {
     std::string text;
@@ -164,8 +169,13 @@ TEST(IncrSerial, MatchesNaiveOnRandomCorpora) {
     cfg.vocab_size = 256 + 1 + 1 + rng() % 120;
     cfg.merge = MergeStrategy::NaiveSerial;
     const TrainResult naive = train_text(text, cfg);
-    cfg.merge = MergeStrategy::IncrSerial;
-    const TrainResult incr = train_text(text, cfg);
-    ASSERT_EQ(incr.merges, naive.merges) << "trial " << trial << " text \"" << text << "\"";
+    for (const auto& [engine, threads] : engines) {
+      cfg.merge = engine;
+      cfg.threads = threads;
+      const TrainResult other = train_text(text, cfg);
+      ASSERT_EQ(other.merges, naive.merges)
+          << "engine " << static_cast<int>(engine) << " threads " << threads << " trial " << trial
+          << " text \"" << text << "\"";
+    }
   }
 }
