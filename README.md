@@ -67,5 +67,9 @@ report/            LaTeX report
 | S6 | IncrPar | ✅ |
 | S7 | NaivePar | ✅ |
 | S10 | Parallel chunker | ✅ |
+| B0 | Batched merging: proof, `tools/batchsim` | ✅ |
+| B1–B5 | `incr-batch` engine, hashed owners, parallel rounds | ⬜ |
+| N6 | Related work | ⬜ |
 | S8 | Benchmarks | ⬜ |
+| B6–B7 | Trace, ParaBPE Studio | ⬜ |
 | S9 | Report | ⬜ |

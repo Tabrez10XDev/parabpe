@@ -20,10 +20,18 @@ Work through the tasks in **pick-up order**. A task can start once everything in
 | 11 | S7 NaivePar | ✅ | S2 |
 | 12 | S6 IncrPar | ✅ (fork per large step, not a persistent region; see HANDOFF) | S5, G1 |
 | 12b | S10 Parallel chunker | ✅ | S4, G1 |
-| 13 | S8 Full benchmarks (on the Mac, **mains power**) | ⬜ | S4–S7, S10, N7 |
-| 14 | S9 Report | ⬜ | S8 |
+| 13 | B0 Batched merging: plan, proof, `tools/batchsim` | ✅ | S6 |
+| 14 | B1 Pure refactor into `src/incr_common.hpp` | ⬜ | B0 |
+| 15 | B2 `incr-batch` plumbing | ⬜ | B1 |
+| 16 | B3 Serial batched engine + verifier + tests | ⬜ | B2 |
+| 17 | B4 Hashed owners + parallel rounds (**mains power** for the kill check) | ⬜ | B3 |
+| 18 | B5 IncrPar owner-map ablation | ⬜ | B4 |
+| 19 | N6 Related-work notes | ⬜ | — |
+| 20 | S8 Full benchmarks (on the Mac, **mains power**) | ⬜ | S4–S7, S10, N7, B5 |
+| 21 | B6 Trace (`--trace`, P/E labels) | ⬜ | B3 |
+| 22 | B7 ParaBPE Studio | ⬜ | B6, S8 |
+| 23 | S9 Report | ⬜ | S8, B7 |
 | — | N5 Get big-machine access (optional) | ⬜ **human task** | — |
-| — | N6 Related-work notes | ⬜ | — |
 
 ---
 
@@ -249,10 +257,91 @@ Acceptance: work units identical to serial for threads {1,2,3,4,8,16} on all gol
 specials straddling range borders, and on the 10 MB slices. Invalid UTF-8 reports the same offset for every T.
 The equivalence matrix passes. Phase `chunk` speedup is measured in S8.
 
-## S8 / S9
-See `docs/PLAN.md` §6 (benchmark methodology) and §9.
+## Upgrade: batched merging
+The idea, the proof and the measurements are in `docs/notes/batched_merging.md`. Every exactness change gets a mutation
+check. After each task: tests green in `build` and `build-debug`, docs updated, commit, push. IncrSerial stays the
+baseline; its phase 3 on `wikitext.full` v32k must stay about 0.66–0.68 s.
 
-## N5 (human) / N6
+### B0: Record the plan
+`docs/notes/batched_merging.md`, these cards, the push rule in `CLAUDE.md`, `tools/batchsim/batchsim.cpp`, and the CI
+TSan option.
+Done 2026-11-03. `batchsim` reproduces all six relaxed-rule round counts; the closed form needs 2,561 rounds on
+`wikitext.full` v32k. See HANDOFF.
+
+### B1: Pure refactor
+Move `ShardedCounts`, `Owner`, `LocalCounts`, `partition_words`, `count_serial`, `count_parallel`, `merge_owner`,
+`MergeStep`, `tokens_touched`, `ThreadDelta`, `ShardDelta` (and `HeapEntry`, `contains_pair`, `index_word`, which they
+need) into `src/incr_common.hpp`. `parallel_step` becomes a free template:
+`template <class MergeFn> void parallel_step(WordTable&, std::vector<Owner>&, ShardedCounts&, MergeFn&&, std::vector<ThreadDelta>&, std::vector<ShardDelta>&, int threads)`.
+
+Acceptance: behaviour identical; tests and matrix identical; IncrSerial phase 3 within noise, old vs new binary.
+
+### B2: Plumbing
+`MergeStrategy::IncrBatch` (CLI `incr-batch`) through `types.hpp`, `main.cpp`, `io.cpp`, `strategies.{hpp,cpp}` and
+`test_smoke.cpp`. `TrainConfig`: `verify_batches=false`, `owners_per_thread=4`, `batch_scan_cap=256`, `trace_path=""`.
+`MergeStats` in `TrainResult`: rounds, max_batch, parallel_rounds, histogram {1,2,3-4,5-8,9-16,17-32,33-64,65-128,129+},
+stop reasons {disjoint, tie, self, budget, capped}, select_s, order_s, changed_pairs. `MergeEngine::stats()`;
+`format_timings` writes `"batch": {...}` only for incr-batch. Flags `--verify-batches`, `--owners-per-thread`,
+`--batch-scan-cap`, `--trace`. Stub: `std::logic_error("IncrBatch: not implemented (B3)")`.
+
+### B3: Serial batched engine + verifier + tests
+Files: `src/merge_batch.cpp`, `src/batch_select.hpp`, `tests/unit/test_batch.cpp`.
+- `select_round` on the lazy heap; pure `choose_batch(prefix, tail, complete, tok_mark, stamp)` with strict, relaxed and
+  closed-form rules behind an internal enum, verified in that order. **j is 0-based.**
+- `apply_batch`: one pass per word via `first_slot[tok]` and `second[slot]`; one whole-word diff per word per round.
+- `--verify-batches`: a shadow sequential oracle on a copy of the table.
+- Tests: `choose_batch` cases (tie with p1, tie only with pK, self-pair, cap 0 and 1, budget 1, the prefix-stopping pair
+  in T); `apply_batch` vs sequential, with a self-pair in the middle; adversarial corpora, including `eax`×2 + `df`×2.
+- Add to `kEngines`/`is_parallel`, the `Engines` suite, the random list with `verify_batches=true`, and `run_matrix.py`.
+- Mutations that must fail: always k=K; self-pair mid-batch; `<=` in g; bytes push after heap push; 1-based j; the
+  stopping pair left out of T.
+- Settle the `batch_scan_cap` default by measuring: at 256, `wikitext.full` v100k takes 35,237 rounds against 21,295
+  uncapped.
+
+Acceptance: identical everywhere; `--verify-batches` passes on both 10 MB slices and `wikitext.full` v32k; rounds ≤ 3,409
+there (the closed form predicts 2,561), cross-checked with batchsim; changed pairs and select/order time logged.
+
+### B4: Hashed owners + parallel rounds
+`partition_words_hashed`: owner = mix64(w >> 4) % n, increasing `words` list, n = owners_per_thread·T (1 at T=1),
+`schedule(dynamic,1)`. A round goes parallel when Σ tokens_touched ≥ `par_threshold_tokens`. Zero-count erasure moves to
+a periodic parallel sweep. Threshold sweep {1k, 4k, 16k, 64k}.
+
+**Kill check (mains power, median of 3):** phase 3 at 5 threads on `wikitext.full` < 1.3× IncrSerial at **both** vocab
+32k and 100k stops the optimising. Then ship the theorem, the span reduction and the imbalance fix, and move to B6, B7, S9.
+
+Acceptance: matrix includes `incr-batch` with 0 mismatches; `--verify-batches` passes at 5 and 11 threads at v32k and v100k.
+
+### B5: IncrPar owner-map ablation
+`--owner-map contiguous|hashed` for IncrPar (default contiguous). Log busiest-owner/mean tokens on steps ≥ 4096 in
+`MergeStats`, to measure the 2.30 → ~1.07 claim directly.
+
+### N6: Related work
+Prior multi-merge and parallel BPE training: HF tokenizers, SentencePiece, YouTokenToMe, minbpe, papers. Write
+`docs/notes/related_work.md` and decide what the novelty claim may say.
+
+### S8: Full benchmarks (needs mains power)
+`bench/configs/batch.yaml`: incr-serial, incr-par, incr-batch × omp × threads {1,2,3,4,5,6,8,11} × {wikitext.full,
+tinystories.1G} × vocab {32000, 100000}. `bench/configs/scale.yaml`: full TinyStories (2.2 GB) and 3.2 GB WikiText. Also
+main, naive, reduce, threshold and weak, all with `--require-ac`, plus the HF comparison again on mains power. Extend
+`run_bench.py` (`PARALLEL`, the threshold rule in `grid()`, `rounds`/`max_batch`) and `plot.py` (`STRATEGY_COLORS`, span
+chart, batch-size histogram). Commit `results/`. See also `docs/PLAN.md` §6.
+
+### B6: Trace
+`--trace FILE` writes Chrome Trace Event JSON from per-thread `alignas(64)` holders: zero cost off, under 2% on. Kinds:
+CHUNK, PRETOK_UNIT, SELECT, SERIAL_APPLY, OWNER_MERGE, SHARD_REDUCE, ZERO_SWEEP, ORDER_UPDATE. P/E labels from
+`pthread_cpu_number_np` and `ioreg` (ids 0–5 = E, 6–10 = P on this Mac): a sample, not pinning. This lands after S8, so
+re-measure IncrSerial and `incr-batch` afterwards, and rerun S8 configs if the off cost isn't within noise.
+
+### B7: ParaBPE Studio
+`studio/index.html` (vanilla JS, no build) + `studio/serve.py` (stdlib, bound to 127.0.0.1, inputs under `data/` only).
+Replay with swimlanes and P/E badges, merges landing per round, a merges/rounds counter and span curve, an exactness badge
+(sha256 against IncrSerial), and speedup charts from `results/*.csv`.
+
+### S9: Report
+Title: *ParaBPE: Provably Exact Parallel BPE Training — Batched Merges That Break the Sequential Chain.* `report/report.tex`;
+every number traced to `results/`. See also `docs/PLAN.md` §9.
+
+## N5 (human)
 - **N5 (optional):** only if time and budget allow, rent a machine with ≥16 *physical* cores for an extra scaling
   point (e.g. AWS `c7a.4xlarge` / `c7g.4xlarge`, which have no SMT). The main results come from the Mac.
-- **N6:** `report/related_work.md` covering Sennrich 2016, GPT-2, HF tokenizers, SentencePiece, minbpe and the CS336 BPE notes.
+- **N6:** see the card above; also cover Sennrich 2016, GPT-2 and the CS336 BPE notes.

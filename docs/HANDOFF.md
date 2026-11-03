@@ -245,11 +245,29 @@ is applied with `parallel for` over words (each word is a disjoint range of `tok
 - Warm `chunk` on `tinystories.1G`: 0.150 s at 1 thread, 0.058 s at 5, 0.051 s at 11 (2.9×; memory-bandwidth bound).
   The whole 1 GB run at 11 threads (vocab 1000) is **1.47 s**, down from 1.66 s. One run each, on battery.
 
-**Next task:** S8 (full benchmarks). It **needs the Mac on mains power and awake**:
-`.venv/bin/python -I bench/run_bench.py bench/configs/<name>.yaml --require-ac` for main, naive, reduce, threshold
-and weak (make the weak slices first), then `bench/plot.py results/*.csv --out-dir results/plots`. It needs IncrSerial phase breakdowns on 100 MB / 1 GB (mostly in
-`docs/notes/profiling.md` already) and a **user decision** on how much effort S6 gets. S5 and S7 are unblocked and
-don't depend on G1.
+**B0 (2026-11-03).** The batched-merging upgrade is planned in `docs/notes/batched_merging.md`, which has the full
+proof. Task order from here: B1, B2, B3, B4, B5, N6, S8, B6, B7, S9 (cards in `docs/TASKS.md`).
+- **The formula needs a 0-based j.** With 1-based members, `j+1` keeps one member too many. Counterexample in the note:
+  words `eax`×2 and `df`×2.
+- `tools/batchsim/batchsim.cpp` (standalone, not in CMake): `c++ -std=c++20 -O2 tools/batchsim/batchsim.cpp -o build/batchsim`.
+  Its merges are byte-identical to IncrSerial on `wikitext.10M` v4000.
+- All six prototype round counts reproduce exactly under the relaxed rule. The closed form is better: **2,561 rounds**
+  on `wikitext.full` v32k (mean batch 12.39) against 3,409, and 21,295 against 32,533 at v100k.
+- **`batch_scan_cap=256` costs real batching at v100k:** 35,237 rounds against 21,295 uncapped; 1024 gives 21,646. B3
+  settles the default.
+- Not reproduced: hashed imbalance is 1.07–1.08 (prototype 1.02–1.06) and the batched big-step share is 90.0% (prototype
+  91.2%). The contiguous 2.30 and the 80.5% do reproduce.
+- **Wrong rules pass on `wikitext.full` v32k.** `all` and `one-based` only fail on smaller corpora, so a clean verify on
+  one big corpus proves little.
+
+**CI (2026-11-03).** The repo now has a remote (`origin`, public), so CI does run; the notes above saying otherwise
+predate it. First run: `gcc` and `asan` passed, `tsan` failed 9/58 on false positives inside `libomp.so`, stopping each
+test at the first report, so TSan had checked nothing. B0 adds `ignore_noninstrumented_modules=1`. Check
+`gh run list` after each push.
+
+**Next task:** B1 (pure refactor into `src/incr_common.hpp`). B4's kill check and S8 **need the Mac on mains power and
+awake**: `.venv/bin/python -I bench/run_bench.py bench/configs/<name>.yaml --require-ac`, then
+`bench/plot.py results/*.csv --out-dir results/plots`.
 
 ## What exists
 | Path | What it is |
@@ -279,6 +297,7 @@ don't depend on G1.
 | `bench/run_bench.py`, `bench/plot.py`, `bench/configs/*.yaml` | Bench harness (N7); results go to `results/` (committed) |
 | `scripts/profile_phases.py`, `docs/notes/profiling.md` | N8 profiling spike + findings |
 | `tests/equivalence/run_matrix.py` | Equivalence matrix (S3); CTest `equivalence_matrix`, label `slow` |
+| `tools/batchsim/batchsim.cpp`, `docs/notes/batched_merging.md` | Independent batching simulator; the proof, measurements and risks (B0) |
 | `report/` | Empty (contains only `.gitkeep`) |
 
 ## Environment notes (developer Mac)

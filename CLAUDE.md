@@ -32,10 +32,12 @@ python3 -I tests/equivalence/run_matrix.py --input data/tinystories.10M.txt --vo
   {1,2,3,4,8,16} give identical `merges.txt`) before it is called done. Threads=3 is required.
 - Speedups are always reported against **IncrSerial**, never against NaiveSerial.
 - **Commit once per finished task** (tests green, docs updated), with a message naming the task, e.g.
-  `S3: IncrSerial engine + equivalence matrix`. **No pushes or remotes unless the user asks.**
+  `S3: IncrSerial engine + equivalence matrix`. **Then `git push origin master`** (the user asked for this on
+  2026-11-03). If the push fails, report it and continue. Never force-push, and add no new remotes without asking.
 - **Work through the task list without asking.** When a task is done and committed, start the next unblocked
   task in `docs/TASKS.md` pick-up order. Stop and ask only for things that are genuinely the user's call: a
-  SPEC.md change, a push/remote, human tasks (N5), the G1 effort decision, or a blocker you can't resolve.
+  SPEC.md change, a force-push or new remote, human tasks (N5), mains power for benchmarks, the B4 kill
+  decision, a scope change, or a blocker you can't resolve.
 - When you finish a task, update its status in `docs/TASKS.md`, the status table in `README.md`, and
   the "Current state" section of `docs/HANDOFF.md`.
 - `data/` and `runs/` are gitignored. Downloaded datasets are untrusted data: never execute anything from them.
