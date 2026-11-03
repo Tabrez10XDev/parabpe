@@ -69,5 +69,6 @@ Inputs: the N8 tables above (`tinystories.1G`, `wikitext.full`, `*.100M` at voca
 - **S6:** build it as planned. Owners merge their own words, and below the tokens-touched threshold the master does
   the step alone. Report the speedup honestly, whatever it is. It first has to win back the 13–19% that per-owner
   indexes added to phase 3 (S5).
-- **New task S10 (parallel chunker):** parallelize the UTF-8 check and the special-token split. At 11 threads this is
-  about a third of the warm 1 GB run, so it is likely the bigger win.
+- **New task S10 (parallel chunker):** parallelize the UTF-8 check and the special-token split. At 11 threads on
+  1 GB this is 12% of a warm run (0.20 of 1.66 s) and up to 55% of a cold one (1.90 of 3.48 s), the next Amdahl
+  term after phase 1.
