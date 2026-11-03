@@ -15,11 +15,12 @@ Work through the tasks in **pick-up order**. A task can start once everything in
 | 6 | S3 IncrSerial + equivalence harness | ✅ | S2 |
 | 7 | N8 Profiling spike | ✅ | N3, N4 |
 | 8 | N7 Bench harness | ✅ | — (needs the `timings.json` schema in SPEC §6 only) |
-| 9 | G1 Profiling gate | ⬜ | S3, S4 |
+| 9 | G1 Profiling gate | ✅ (modest S6 + S10 chunking) | S3, S4 |
 | 10 | S5 Parallel PairStats | ✅ | S3 |
 | 11 | S7 NaivePar | ✅ | S2 |
 | 12 | S6 IncrPar | ⬜ | S5, G1 |
-| 13 | S8 Full benchmarks (on the Mac) | ⬜ | S4–S7, N7 |
+| 12b | S10 Parallel chunker | ⬜ | S4, G1 |
+| 13 | S8 Full benchmarks (on the Mac, **mains power**) | ⬜ | S4–S7, S10, N7 |
 | 14 | S9 Report | ⬜ | S8 |
 | — | N5 Get big-machine access (optional) | ⬜ **human task** | — |
 | — | N6 Related-work notes | ⬜ | — |
@@ -232,6 +233,21 @@ NaiveSerial with `omp for` over words, thread-local pair maps and a bucketed red
   3. Bucketed delta reduce; the master pushes the changed pairs to the heap.
 - Threshold on **tokens touched**: below it, the master does the step alone.
 - Acceptance: equivalence matrix passes and TSan is clean. Expect a 1–2× speedup on phase 3 and report it honestly.
+
+## S10: Parallel chunker (added at G1)
+Files: `src/corpus.cpp`, `tests/unit/test_chunker.cpp`.
+- `validate_utf8` in parallel: split the text into T byte ranges, move each start forward past continuation bytes
+  (`10xxxxxx`), and validate the ranges independently. Report the **lowest** failing offset, so the error message
+  does not depend on T.
+- Special-token split in parallel: each thread finds the occurrences in its range plus an overlap of
+  (longest special − 1) bytes, keeping only matches that start in its own range. Then concatenate in order and apply
+  the leftmost/longest rule serially over the merged candidate list. Work units must come out **identical** to the
+  serial chunker for every T, because they decide nothing about the result but are compared in tests.
+- `make_work_units` takes the thread count (`cfg.threads`); the serial path stays the default for `--pretok serial`.
+
+Acceptance: work units identical to serial for threads {1,2,3,4,8,16} on all golden inputs, on random texts with
+specials straddling range borders, and on the 10 MB slices. Invalid UTF-8 reports the same offset for every T.
+The equivalence matrix passes. Phase `chunk` speedup is measured in S8.
 
 ## S8 / S9
 See `docs/PLAN.md` §6 (benchmark methodology) and §9.

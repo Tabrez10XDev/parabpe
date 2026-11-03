@@ -53,3 +53,21 @@ benchmark method. Each "threads" figure is the number of OpenMP threads (or Rayo
     check. The N7 harness must discard a warm-up run and report cold vs warm separately, or drop caches
     consistently.
   - This spike ran on battery. S8 must run on mains power.
+
+## G1 gate (2026-11-03)
+
+Inputs: the N8 tables above (`tinystories.1G`, `wikitext.full`, `*.100M` at vocab 32000) and the S4/S5 measurements in
+`docs/HANDOFF.md`.
+
+| | TinyStories 1 GB | WikiText 540 MB |
+|---|---:|---:|
+| Phase 1 speedup, 11 threads (OMP pretok vs serial) | 7.0× | 4.7× |
+| Merge loop share of 11-thread wall time | 3% | 34% |
+| Serial chunk (warm / cold) | 0.20 s / 1.90 s | 0.10 s / 1.06 s |
+
+**Decision (user, 2026-11-03): a modest S6, plus parallel chunking.**
+- **S6:** build it as planned. Owners merge their own words, and below the tokens-touched threshold the master does
+  the step alone. Report the speedup honestly, whatever it is. It first has to win back the 13–19% that per-owner
+  indexes added to phase 3 (S5).
+- **New task S10 (parallel chunker):** parallelize the UTF-8 check and the special-token split. At 11 threads this is
+  about a third of the warm 1 GB run, so it is likely the bigger win.

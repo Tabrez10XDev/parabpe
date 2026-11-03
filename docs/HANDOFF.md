@@ -190,7 +190,10 @@ is applied with `parallel for` over words (each word is a disjoint range of `tok
     owner's index. S6 has to win this back.
   - `merges.txt` is identical to IncrSerial at 5 and 11 threads.
 
-**Next task:** G1 (profiling gate). It needs IncrSerial phase breakdowns on 100 MB / 1 GB (mostly in
+**G1 (2026-11-03).** The numbers and the decision are in `docs/notes/profiling.md`. The user chose a **modest S6**
+(as planned, reported honestly) plus a new task, **S10 (parallel chunker)**; its card is in TASKS.
+
+**Next task:** S6 (IncrPar phase 3), then S10. S8 needs the Mac on mains power. It needs IncrSerial phase breakdowns on 100 MB / 1 GB (mostly in
 `docs/notes/profiling.md` already) and a **user decision** on how much effort S6 gets. S5 and S7 are unblocked and
 don't depend on G1.
 
