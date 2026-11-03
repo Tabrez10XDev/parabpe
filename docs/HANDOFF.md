@@ -115,7 +115,17 @@ sorted. Per-thread and per-shard structs are `alignas(64)`. Exceptions inside th
   is written but **has never run** (no remote). Locally, Apple clang's TSan fails at startup ("Interceptors are not
   working", also with `DYLD_INSERT_LIBRARIES`), same toolchain problem as ASan.
 
-**Next task:** N8 (profiling spike), then N7 (bench harness), then G1 (profiling gate: a user decision on S6 effort).
+**N8 (2026-11-03).** `scripts/profile_phases.py` (run with `.venv/bin/python -I`; `--small`, `--large`, `--threads`,
+`--out`) times the `bpe_ref.py` phases and compares HF `tokenizers` training at Rayon 1/N with our C++.
+Results and takeaways are in **`docs/notes/profiling.md`** (raw output in `runs/n8/`). In short:
+- In C++, phase 1 is 76–95% of serial time.
+- The merge loop is 34% of 11-thread wall time on `wikitext.full`, but 3% on TinyStories.
+- A cold page cache makes `chunk` 10× slower on 1 GB.
+- We beat HF by about 11× (1 thread) and 8× (11 threads) on `wikitext.100M`. This is ballpark only: HF doesn't split
+  on specials.
+- The spike ran on battery. S8 must run on mains power.
+
+**Next task:** N7 (bench harness), then G1 (profiling gate: a user decision on S6 effort).
 
 ## What exists
 | Path | What it is |
@@ -142,6 +152,7 @@ sorted. Per-thread and per-shard structs are `alignas(64)`. Exceptions inside th
 | `include/parabpe/trainer.hpp`, `src/trainer.cpp` | The pipeline as a library: `count_words`, `train_text`, `train` (S2) |
 | `src/bpe_common.hpp` | Shared merge rules for every engine: tie-break, greedy merge, merge count (S2) |
 | `tests/interop/check_hf.py` | HF `tokenizers` token-id check of our output files (S2) |
+| `scripts/profile_phases.py`, `docs/notes/profiling.md` | N8 profiling spike + findings |
 | `tests/equivalence/run_matrix.py` | Equivalence matrix (S3); CTest `equivalence_matrix`, label `slow` |
 | `bench/`, `report/` | Empty (contain only `.gitkeep`) |
 
