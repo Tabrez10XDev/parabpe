@@ -48,7 +48,9 @@ WordCounts count_words(std::string_view text, const TrainConfig& cfg, PhaseTimin
   PhaseTimings local;
   PhaseTimings& out = t ? *t : local;
   Laps laps(omp_get_wtime());
-  const auto units = make_work_units(text, cfg.special_tokens, cfg.work_unit_bytes);
+  // The OMP pipeline also chunks in parallel (S10); --pretok serial keeps the serial chunker.
+  const int chunk_threads = cfg.pretok == PretokStrategy::OMP ? cfg.threads : 1;
+  const auto units = make_work_units(text, cfg.special_tokens, cfg.work_unit_bytes, chunk_threads);
   laps.lap(out.chunk);
   WordCounts counts = make_pretokenizer(cfg.pretok)->run(units, cfg);
   laps.lap(out.pretok);

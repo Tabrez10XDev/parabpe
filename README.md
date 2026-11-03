@@ -66,5 +66,6 @@ report/            LaTeX report
 | S5 | Parallel PairStats | ✅ |
 | S6 | IncrPar | ✅ |
 | S7 | NaivePar | ✅ |
+| S10 | Parallel chunker | ✅ |
 | S8 | Benchmarks | ⬜ |
 | S9 | Report | ⬜ |

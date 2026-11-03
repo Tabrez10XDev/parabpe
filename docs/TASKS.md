@@ -19,7 +19,7 @@ Work through the tasks in **pick-up order**. A task can start once everything in
 | 10 | S5 Parallel PairStats | ✅ | S3 |
 | 11 | S7 NaivePar | ✅ | S2 |
 | 12 | S6 IncrPar | ✅ (fork per large step, not a persistent region; see HANDOFF) | S5, G1 |
-| 12b | S10 Parallel chunker | ⬜ | S4, G1 |
+| 12b | S10 Parallel chunker | ✅ | S4, G1 |
 | 13 | S8 Full benchmarks (on the Mac, **mains power**) | ⬜ | S4–S7, S10, N7 |
 | 14 | S9 Report | ⬜ | S8 |
 | — | N5 Get big-machine access (optional) | ⬜ **human task** | — |

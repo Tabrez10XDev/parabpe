@@ -207,9 +207,9 @@ struct alignas(64) ThreadDelta {
 };
 // Per-shard output of the delta reduction.
 struct alignas(64) ShardDelta {
-  PairCounts sum;                // deltas of this shard summed over threads
-  std::vector<HeapEntry> push;   // pairs whose count changed and is still positive
-  std::vector<PairKey> zero;     // pairs whose count reached 0
+  PairCounts sum;               // deltas of this shard summed over threads
+  std::vector<HeapEntry> push;  // pairs whose count changed and is still positive
+  std::vector<PairKey> zero;    // pairs whose count reached 0
   bool negative = false;
 };
 
@@ -217,8 +217,9 @@ struct alignas(64) ShardDelta {
 // updates + lazy max-heap. In IncrPar the master runs the merge loop; a step that touches at least
 // cfg.par_threshold_tokens tokens opens a parallel region in which each owner merges its own words
 // into padded per-thread delta buffers, shard s then sums and applies its deltas, and owners drop
-// pairs that reached 0. Smaller steps run on the master alone, like IncrSerial. (A persistent region
-// would cost a barrier on every one of the ~30k merges, most of which touch a handful of words.)
+// pairs that reached 0. Smaller steps run on the master alone, like IncrSerial. (A persistent
+// region would cost a barrier on every one of the ~30k merges, most of which touch a handful of
+// words.)
 class IncrEngine final : public MergeEngine {
  public:
   explicit IncrEngine(bool parallel) : parallel_(parallel) {}
@@ -289,9 +290,9 @@ class IncrEngine final : public MergeEngine {
       // Before any push: the heap comparator reads the bytes of pairs that contain z.
       token_bytes.push_back(token_bytes[step.a] + token_bytes[step.b]);
 
-      const bool par_step = parallel_ && cfg.threads > 1 &&
-                            tokens_touched(table, owners, best, cfg.par_threshold_tokens) >=
-                                cfg.par_threshold_tokens;
+      const bool par_step =
+          parallel_ && cfg.threads > 1 &&
+          tokens_touched(table, owners, best, cfg.par_threshold_tokens) >= cfg.par_threshold_tokens;
       if (par_step) {
         parallel_step(table, owners, counts, step, thread_delta, shard_delta, cfg.threads);
         for (const ShardDelta& sd : shard_delta) {

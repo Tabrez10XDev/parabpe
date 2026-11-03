@@ -2,6 +2,8 @@
 
 #include <gtest/gtest.h>
 
+#include <cstring>
+#include <random>
 #include <stdexcept>
 #include <string>
 #include <vector>
@@ -136,5 +138,76 @@ TEST(Utf8, RejectsInvalidSequences) {
                               "\xF0\x9F\x91",      // truncated 4-byte
                               "abcdefgh\xC3"}) {   // truncated after the ASCII fast path
     EXPECT_THROW(validate_utf8(s), std::runtime_error) << testing::PrintToString(s);
+  }
+}
+
+namespace {
+
+constexpr int kThreads[] = {1, 2, 3, 4, 8, 16};
+
+// Random text of `bytes` bytes (>= the 1 MB parallel cutoff) with dense special tokens, so many
+// occurrences straddle the per-thread range borders. "aa" overlaps itself; "<|end" is a prefix of
+// "<|endoftext|>".
+std::string random_text(size_t bytes, uint32_t seed) {
+  std::mt19937 rng(seed);
+  // clang-format off
+  const std::vector<std::string> pieces = {"a", "aa", "b", " ", "\n", "<|end", "<|endoftext|>",
+                                           "\xC3\xA9", "\xE4\xB8\xAD", "\xF0\x9F\x98\x80", "xyz"};
+  // clang-format on
+  std::string s;
+  while (s.size() < bytes) s += pieces[rng() % pieces.size()];
+  return s;
+}
+
+std::string error_of(std::string_view text, int threads) {
+  try {
+    validate_utf8(text, threads);
+  } catch (const std::runtime_error& e) {
+    return e.what();
+  }
+  return "valid";
+}
+
+}  // namespace
+
+TEST(ParallelChunker, UnitsIdenticalToSerial) {
+  const std::vector<std::vector<std::string>> special_sets = {
+      {"<|endoftext|>"}, {"<|endoftext|>", "<|end"}, {"aa", "<|end"}, {"aa", "a"}, {}};
+  const std::string text = random_text(3 << 20, 1);
+  for (const auto& specials : special_sets) {
+    for (size_t target : {size_t{1000}, size_t{1} << 20}) {
+      const auto serial = make_work_units(text, specials, target, 1);
+      for (int t : kThreads) {
+        SCOPED_TRACE("specials " + std::to_string(specials.size()) + " target " +
+                     std::to_string(target) + " threads " + std::to_string(t));
+        const auto par = make_work_units(text, specials, target, t);
+        ASSERT_EQ(unit_sizes(par), unit_sizes(serial));
+        ASSERT_EQ(all_docs(par), all_docs(serial));
+      }
+    }
+  }
+}
+
+TEST(ParallelChunker, Utf8ErrorOffsetDoesNotDependOnThreads) {
+  const std::string valid = random_text(2 << 20, 2);
+  EXPECT_EQ(error_of(valid, 8), "valid");
+  // Corrupt bytes at, just before and just after every range border of every thread count, plus
+  // a run of continuation bytes longer than any sequence (skipped by the range alignment).
+  std::vector<size_t> positions = {0, 1, valid.size() - 1};
+  for (int t : kThreads) {
+    for (int r = 1; r < t; ++r) {
+      const size_t b = valid.size() * r / t;
+      for (size_t d : {b - 2, b - 1, b, b + 1}) positions.push_back(d);
+    }
+  }
+  for (size_t p : positions) {
+    for (const char* bad : {"\xFF", "\x80", "\xC3", "\x80\x80\x80\x80\x80\x80"}) {
+      std::string text = valid;
+      text.replace(p, std::min(std::strlen(bad), text.size() - p), bad);
+      const std::string expected = error_of(text, 1);
+      for (int t : kThreads) {
+        ASSERT_EQ(error_of(text, t), expected) << "pos " << p << " threads " << t;
+      }
+    }
   }
 }

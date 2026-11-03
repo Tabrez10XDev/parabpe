@@ -5,6 +5,7 @@
 #include <sys/stat.h>
 #include <unistd.h>
 
+#include <algorithm>
 #include <cstdint>
 #include <cstring>
 #include <stdexcept>
@@ -49,14 +50,15 @@ Corpus& Corpus::operator=(Corpus&& o) noexcept {
   return *this;
 }
 
-void validate_utf8(std::string_view text) {
+namespace {
+
+// Offset of the first invalid sequence that starts in [begin, end), or npos. `begin` must be a
+// sequence boundary; the last sequence may read past `end` (up to text.size()).
+size_t first_invalid_utf8(std::string_view text, size_t begin, size_t end) {
   const auto* s = reinterpret_cast<const unsigned char*>(text.data());
   const size_t n = text.size();
-  size_t i = 0;
-  auto fail = [&i]() {
-    throw std::runtime_error("invalid UTF-8 at byte offset " + std::to_string(i));
-  };
-  while (i < n) {
+  size_t i = begin;
+  while (i < end) {
     // ASCII fast path, 8 bytes at a time.
     if (i + 8 <= n) {
       uint64_t word;
@@ -85,19 +87,81 @@ void validate_utf8(std::string_view text) {
       if (c == 0xF0) lo = 0x90;  // no overlongs
       if (c == 0xF4) hi = 0x8F;  // nothing above U+10FFFF
     } else {
-      fail();  // continuation byte, overlong C0/C1, or F5..FF
+      return i;  // continuation byte, overlong C0/C1, or F5..FF
     }
-    if (i + len > n || s[i + 1] < lo || s[i + 1] > hi) fail();
+    if (i + len > n || s[i + 1] < lo || s[i + 1] > hi) return i;
     for (size_t k = 2; k < len; ++k) {
-      if ((s[i + k] & 0xC0) != 0x80) fail();
+      if ((s[i + k] & 0xC0) != 0x80) return i;
     }
     i += len;
   }
+  return std::string_view::npos;
 }
 
-std::vector<WorkUnit> make_work_units(std::string_view text,
-                                      const std::vector<std::string>& special_tokens,
-                                      size_t target_bytes) {
+bool is_continuation(char c) {
+  return (static_cast<unsigned char>(c) & 0xC0) == 0x80;
+}
+
+constexpr size_t kMinParallelBytes = 1 << 20;  // below this, threads cost more than they save
+
+}  // namespace
+
+void validate_utf8(std::string_view text, int threads) {
+  constexpr size_t npos = std::string_view::npos;
+  size_t bad = npos;
+  if (threads <= 1 || text.size() < kMinParallelBytes) {
+    bad = first_invalid_utf8(text, 0, text.size());
+  } else {
+    // Range r starts at the first non-continuation byte at or after r*n/T. In valid UTF-8 that is
+    // a sequence boundary, so every range agrees with a serial scan up to the first error, and
+    // the minimum over ranges is the serial answer for every T. Skipped continuation bytes belong
+    // to the previous range, which reports them if they are invalid.
+    const size_t n = text.size();
+    std::vector<size_t> bounds(threads + 1, n);
+    for (int r = 0; r < threads; ++r) {
+      size_t b = n * r / threads;
+      while (r > 0 && b < n && is_continuation(text[b])) ++b;
+      bounds[r] = b;
+    }
+#pragma omp parallel for schedule(dynamic, 1) num_threads(threads) reduction(min : bad)
+    for (int r = 0; r < threads; ++r) {
+      bad = std::min(bad, first_invalid_utf8(text, bounds[r], std::max(bounds[r], bounds[r + 1])));
+    }
+  }
+  if (bad != npos) throw std::runtime_error("invalid UTF-8 at byte offset " + std::to_string(bad));
+}
+
+namespace {
+
+// Packs documents into work units in order (see make_work_units in corpus.hpp).
+class UnitPacker {
+ public:
+  explicit UnitPacker(size_t target_bytes) : target_(target_bytes) {}
+  void add(std::string_view doc) {
+    if (doc.empty()) return;                     // consecutive / leading / trailing separators
+    if (doc.size() >= target_) close_current();  // a big document gets its own unit
+    current_.docs.push_back(doc);
+    current_bytes_ += doc.size();
+    if (current_bytes_ >= target_) close_current();
+  }
+  std::vector<WorkUnit> finish() {
+    close_current();
+    return std::move(units_);
+  }
+
+ private:
+  void close_current() {
+    if (!current_.docs.empty()) units_.push_back(std::move(current_));
+    current_ = WorkUnit{};
+    current_bytes_ = 0;
+  }
+  size_t target_;
+  std::vector<WorkUnit> units_;
+  WorkUnit current_;
+  size_t current_bytes_ = 0;
+};
+
+void check_specials(const std::vector<std::string>& special_tokens) {
   for (size_t k = 0; k < special_tokens.size(); ++k) {
     if (special_tokens[k].empty()) throw std::invalid_argument("special tokens must be non-empty");
     for (size_t j = 0; j < k; ++j) {
@@ -106,26 +170,67 @@ std::vector<WorkUnit> make_work_units(std::string_view text,
       }
     }
   }
-  validate_utf8(text);
+}
 
-  std::vector<WorkUnit> units;
-  WorkUnit current;
-  size_t current_bytes = 0;
-  auto close_current = [&]() {
-    if (!current.docs.empty()) units.push_back(std::move(current));
-    current = WorkUnit{};
-    current_bytes = 0;
-  };
-  auto add_doc = [&](std::string_view doc) {
-    if (doc.empty()) return;                          // consecutive / leading / trailing separators
-    if (doc.size() >= target_bytes) close_current();  // a big document gets its own unit
-    current.docs.push_back(doc);
-    current_bytes += doc.size();
-    if (current_bytes >= target_bytes) close_current();
-  };
+struct Occurrence {
+  size_t pos, len;
+};
+
+// S10: every occurrence (overlapping ones included) of every special token, sorted by position
+// and, at the same position, longest first. Thread r collects the occurrences that START in its
+// byte range; searching up to range end + longest token - 1 finds the ones crossing the border.
+std::vector<Occurrence> find_specials_parallel(std::string_view text,
+                                               const std::vector<std::string>& specials,
+                                               int threads) {
+  const size_t n = text.size();
+  size_t max_len = 0;
+  for (const auto& s : specials) max_len = std::max(max_len, s.size());
+  std::vector<std::vector<Occurrence>> found(threads);
+#pragma omp parallel for schedule(dynamic, 1) num_threads(threads)
+  for (int r = 0; r < threads; ++r) {
+    const size_t begin = n * r / threads, end = n * (r + 1) / threads;
+    const std::string_view window = text.substr(begin, end - begin + max_len - 1);
+    std::vector<Occurrence>& mine = found[r];
+    for (const auto& s : specials) {
+      for (size_t p = window.find(s); p != std::string_view::npos && begin + p < end;
+           p = window.find(s, p + 1)) {
+        mine.push_back({begin + p, s.size()});
+      }
+    }
+    std::sort(mine.begin(), mine.end(), [](const Occurrence& x, const Occurrence& y) {
+      return x.pos != y.pos ? x.pos < y.pos : x.len > y.len;
+    });
+  }
+  std::vector<Occurrence> all;
+  for (const auto& f : found) all.insert(all.end(), f.begin(), f.end());
+  return all;
+}
+
+}  // namespace
+
+std::vector<WorkUnit> make_work_units(std::string_view text,
+                                      const std::vector<std::string>& special_tokens,
+                                      size_t target_bytes, int threads) {
+  check_specials(special_tokens);
+  validate_utf8(text, threads);
+  UnitPacker packer(target_bytes);
+  constexpr size_t npos = std::string_view::npos;
+
+  if (threads > 1 && text.size() >= kMinParallelBytes && !special_tokens.empty()) {
+    // Same rule as the serial scan below, applied to the precomputed occurrence list: the first
+    // occurrence at or after `pos` is the leftmost match, and at equal positions the longest
+    // comes first.
+    size_t pos = 0;
+    for (const Occurrence& o : find_specials_parallel(text, special_tokens, threads)) {
+      if (o.pos < pos) continue;  // overlaps the previous separator, or a shorter one at its start
+      packer.add(text.substr(pos, o.pos - pos));
+      pos = o.pos + o.len;
+    }
+    packer.add(text.substr(pos));
+    return packer.finish();
+  }
 
   // next[k] = next occurrence of special k at or after `pos` (npos = none left).
-  constexpr size_t npos = std::string_view::npos;
   std::vector<size_t> next(special_tokens.size());
   for (size_t k = 0; k < special_tokens.size(); ++k) next[k] = text.find(special_tokens[k]);
   size_t pos = 0;
@@ -140,15 +245,14 @@ std::vector<WorkUnit> make_work_units(std::string_view text,
       }
     }
     if (best == npos) break;
-    add_doc(text.substr(pos, best - pos));
+    packer.add(text.substr(pos, best - pos));
     pos = best + best_len;
     for (size_t k = 0; k < special_tokens.size(); ++k) {
       if (next[k] != npos && next[k] < pos) next[k] = text.find(special_tokens[k], pos);
     }
   }
-  add_doc(text.substr(pos));
-  close_current();
-  return units;
+  packer.add(text.substr(pos));
+  return packer.finish();
 }
 
 }  // namespace parabpe

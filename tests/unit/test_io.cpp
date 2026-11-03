@@ -157,7 +157,7 @@ INSTANTIATE_TEST_SUITE_P(All, Engines,
 // heap (IncrSerial) and the bucketed reduction + max (parallel engines, at several thread counts).
 TEST(Engines, MatchNaiveOnRandomCorpora) {
   const std::vector<std::pair<MergeStrategy, int>> engines = {
-      {MergeStrategy::IncrSerial, 1}, {MergeStrategy::NaivePar, 1}, {MergeStrategy::NaivePar, 3},
+      {MergeStrategy::IncrSerial, 1}, {MergeStrategy::NaivePar, 1},  {MergeStrategy::NaivePar, 3},
       {MergeStrategy::NaivePar, 4},   {MergeStrategy::NaivePar, 16}, {MergeStrategy::IncrPar, 1},
       {MergeStrategy::IncrPar, 2},    {MergeStrategy::IncrPar, 3},   {MergeStrategy::IncrPar, 8},
       {MergeStrategy::IncrPar, 16}};
@@ -174,7 +174,8 @@ TEST(Engines, MatchNaiveOnRandomCorpora) {
     for (const auto& [engine, threads] : engines) {
       cfg.merge = engine;
       cfg.threads = threads;
-      cfg.par_threshold_tokens = trial % 2 ? 0 : 8;  // IncrPar: all-parallel, or a mix of both paths
+      cfg.par_threshold_tokens =
+          trial % 2 ? 0 : 8;  // IncrPar: all-parallel, or a mix of both paths
       const TrainResult other = train_text(text, cfg);
       ASSERT_EQ(other.merges, naive.merges)
           << "engine " << static_cast<int>(engine) << " threads " << threads << " trial " << trial

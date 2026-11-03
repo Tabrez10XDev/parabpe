@@ -32,16 +32,18 @@ struct WorkUnit {
 
 // Throws std::runtime_error (with the byte offset) unless text is valid UTF-8: no overlong forms,
 // no surrogates, nothing above U+10FFFF, no truncated sequences. Same rules as Python's strict
-// decode.
-void validate_utf8(std::string_view text);
+// decode. With threads > 1 (and a large text) the check runs in parallel; the reported offset is
+// the same for every thread count.
+void validate_utf8(std::string_view text, int threads = 1);
 
 // Validates UTF-8, then splits text on special tokens (leftmost match, longest first), drops them
 // and skips empty documents (SPEC.md §2). Documents are packed in order: a unit closes once its
 // bytes reach target_bytes, and a document of at least target_bytes gets a unit of its own. The
-// result does not depend on the thread count. Throws std::invalid_argument on empty or duplicate
-// special tokens.
+// result does not depend on the thread count: threads > 1 runs the UTF-8 check and the
+// special-token search in parallel (S10) and gives identical units. Throws std::invalid_argument on
+// empty or duplicate special tokens.
 std::vector<WorkUnit> make_work_units(std::string_view text,
                                       const std::vector<std::string>& special_tokens,
-                                      size_t target_bytes);
+                                      size_t target_bytes, int threads = 1);
 
 }  // namespace parabpe

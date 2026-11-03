@@ -227,7 +227,27 @@ is applied with `parallel for` over words (each word is a disjoint range of `tok
   At 11 threads, the E-cores and the extra owner lookups on every serial step cancel the gain. `threshold.yaml`
   sweeps this properly in S8.
 
-**Next task:** S10 (parallel chunker). S8 needs the Mac on mains power. It needs IncrSerial phase breakdowns on 100 MB / 1 GB (mostly in
+**S10 (2026-11-03).** The parallel chunker, in `src/corpus.cpp`. `make_work_units(..., threads)` and
+`validate_utf8(text, threads)` take a thread count. `train()` passes `cfg.threads` with `--pretok omp` and 1 with
+`--pretok serial`, so the serial baseline keeps the old code. Texts under 1 MB stay serial.
+- **UTF-8 check:** T byte ranges, each moved forward past continuation bytes, with a `reduction(min)` over each
+  range's first error. In valid UTF-8 every non-continuation byte starts a sequence, so each range agrees with the
+  serial scan up to the first error: the reported offset is the same for every T.
+- **Special split:** each thread collects every occurrence (overlapping ones included) that **starts** in its range,
+  searching up to `end + longest − 1`, sorted by position with the longest first. One serial greedy pass skips
+  occurrences before `pos`, which is the same leftmost/longest rule as the serial scan. Packing into units is the
+  shared `UnitPacker`.
+- Tests (`test_chunker.cpp`): units identical to serial for threads {1,2,3,4,8,16} on a 3 MB random text, with
+  5 special-token sets (including self-overlapping `aa` and the prefix pair `<|end` / `<|endoftext|>`) and two unit
+  sizes; the same error offset for every T with invalid bytes at, before and after every range border. A mutation
+  (no boundary alignment) fails both tests. 58/58 pass (Release and Debug).
+- `words.tsv` identical to serial on `tinystories.1G` and `wikitext.full` (5 and 11 threads). Matrix: 0 mismatches.
+- Warm `chunk` on `tinystories.1G`: 0.150 s at 1 thread, 0.058 s at 5, 0.051 s at 11 (2.9×; memory-bandwidth bound).
+  The whole 1 GB run at 11 threads (vocab 1000) is **1.47 s**, down from 1.66 s. One run each, on battery.
+
+**Next task:** S8 (full benchmarks). It **needs the Mac on mains power and awake**:
+`.venv/bin/python -I bench/run_bench.py bench/configs/<name>.yaml --require-ac` for main, naive, reduce, threshold
+and weak (make the weak slices first), then `bench/plot.py results/*.csv --out-dir results/plots`. It needs IncrSerial phase breakdowns on 100 MB / 1 GB (mostly in
 `docs/notes/profiling.md` already) and a **user decision** on how much effort S6 gets. S5 and S7 are unblocked and
 don't depend on G1.
 
