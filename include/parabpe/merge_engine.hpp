@@ -18,6 +18,7 @@ class MergeEngine {
  public:
   virtual ~MergeEngine() = default;
   virtual std::vector<Merge> run(WordTable& table, const TrainConfig& cfg, PhaseTimings& t) = 0;
+  virtual MergeStats stats() const { return {}; }
 };
 
 std::unique_ptr<MergeEngine> make_merge_engine(MergeStrategy strategy);

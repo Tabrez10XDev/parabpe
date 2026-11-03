@@ -91,6 +91,7 @@ add_library(parabpe_core
   src/word_table.cpp
   src/merge_naive.cpp
   src/merge_incr.cpp
+  src/merge_batch.cpp
   src/strategies.cpp
   src/io.cpp
   src/trainer.cpp

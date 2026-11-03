@@ -65,7 +65,7 @@ TEST(Corpus, MmapReadsFile) {
 TEST(Factories, AllStrategiesConstruct) {
   for (auto s : {PretokStrategy::Serial, PretokStrategy::OMP}) EXPECT_NE(make_pretokenizer(s), nullptr);
   for (auto s : {MergeStrategy::NaiveSerial, MergeStrategy::IncrSerial, MergeStrategy::NaivePar,
-                 MergeStrategy::IncrPar})
+                 MergeStrategy::IncrPar, MergeStrategy::IncrBatch})
     EXPECT_NE(make_merge_engine(s), nullptr);
 }
 

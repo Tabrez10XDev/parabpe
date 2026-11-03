@@ -36,7 +36,7 @@ Sanitizer builds: `-DPARABPE_ASAN=ON`, or `-DPARABPE_TSAN=ON` (use clang with LL
 | Flag | Values |
 |---|---|
 | `--pretok` | `serial`, `omp` |
-| `--merge` | `naive-serial`, `incr-serial`, `naive-par`, `incr-par` |
+| `--merge` | `naive-serial`, `incr-serial`, `naive-par`, `incr-par`, `incr-batch` |
 | `--par-threshold-tokens` | IncrPar: minimum tokens touched in a merge before the work is split across threads |
 
 ## Layout
@@ -69,7 +69,8 @@ report/            LaTeX report
 | S10 | Parallel chunker | ✅ |
 | B0 | Batched merging: proof, `tools/batchsim` | ✅ |
 | B1 | Refactor: `src/incr_common.hpp` | ✅ |
-| B2–B5 | `incr-batch` engine, hashed owners, parallel rounds | ⬜ |
+| B2 | `incr-batch` plumbing | ✅ |
+| B3–B5 | `incr-batch` engine, hashed owners, parallel rounds | ⬜ |
 | N6 | Related work | ⬜ |
 | S8 | Benchmarks | ⬜ |
 | B6–B7 | Trace, ParaBPE Studio | ⬜ |

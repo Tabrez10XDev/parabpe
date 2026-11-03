@@ -18,6 +18,7 @@ std::unique_ptr<MergeEngine> make_merge_engine(MergeStrategy strategy) {
     case MergeStrategy::NaivePar: return detail::make_naive_engine(true);
     case MergeStrategy::IncrSerial: return detail::make_incr_engine(false);
     case MergeStrategy::IncrPar: return detail::make_incr_engine(true);
+    case MergeStrategy::IncrBatch: return detail::make_batch_engine();
   }
   throw std::invalid_argument("unknown MergeStrategy");
 }

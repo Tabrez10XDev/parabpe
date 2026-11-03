@@ -50,7 +50,8 @@ int main(int argc, char** argv) {
       {"naive-serial", MergeStrategy::NaiveSerial},
       {"incr-serial", MergeStrategy::IncrSerial},
       {"naive-par", MergeStrategy::NaivePar},
-      {"incr-par", MergeStrategy::IncrPar}};
+      {"incr-par", MergeStrategy::IncrPar},
+      {"incr-batch", MergeStrategy::IncrBatch}};
 
   auto* tr = app.add_subcommand("train", "Train merges on a prepared corpus");
   tr->add_option("--input", input, "Prepared corpus (UTF-8, <|endoftext|>-separated)")
@@ -66,6 +67,14 @@ int main(int argc, char** argv) {
   tr->add_option("--merge", cfg.merge)->transform(CLI::CheckedTransformer(merge_map));
   tr->add_option("--par-threshold-tokens", cfg.par_threshold_tokens);
   tr->add_option("--work-unit-bytes", cfg.work_unit_bytes);
+  tr->add_flag("--verify-batches", cfg.verify_batches,
+               "incr-batch: check every member against a sequential oracle");
+  tr->add_option("--owners-per-thread", cfg.owners_per_thread,
+                 "incr-batch: hashed owners per thread")
+      ->check(CLI::PositiveNumber);
+  tr->add_option("--batch-scan-cap", cfg.batch_scan_cap,
+                 "incr-batch: tie-group entries scanned per round");
+  tr->add_option("--trace", cfg.trace_path, "Write a Chrome Trace JSON file");
   auto* special_opt = tr->add_option("--special", specials,
                                      "Special token, repeatable (default: <|endoftext|>)")
                           ->allow_extra_args(false);

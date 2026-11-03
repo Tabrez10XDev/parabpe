@@ -126,8 +126,33 @@ const char* name_of(MergeStrategy s) {
     case MergeStrategy::IncrSerial: return "incr-serial";
     case MergeStrategy::NaivePar: return "naive-par";
     case MergeStrategy::IncrPar: return "incr-par";
+    case MergeStrategy::IncrBatch: return "incr-batch";
   }
   return "unknown";
+}
+
+// The additive "batch" block of timings.json, written for incr-batch only.
+std::string format_batch_stats(const MergeStats& s, const TrainConfig& cfg) {
+  static constexpr std::array<const char*, 9> kSizes = {"1",     "2",     "3-4",    "5-8", "9-16",
+                                                        "17-32", "33-64", "65-128", "129+"};
+  static constexpr std::array<const char*, 5> kStops = {"disjoint", "tie", "self", "budget",
+                                                        "capped"};
+  std::ostringstream o;
+  o << "  \"batch\": {\"rounds\": " << s.rounds << ", \"max_batch\": " << s.max_batch
+    << ", \"parallel_rounds\": " << s.parallel_rounds << ", \"changed_pairs\": " << s.changed_pairs
+    << ", \"select\": " << format_double(s.select_s) << ", \"order\": " << format_double(s.order_s)
+    << ", \"owners_per_thread\": " << cfg.owners_per_thread
+    << ", \"scan_cap\": " << cfg.batch_scan_cap << ", \"verified\": "
+    << (cfg.verify_batches ? "true" : "false") << ", \"sizes\": {";
+  for (size_t i = 0; i < kSizes.size(); ++i) {
+    o << (i ? ", " : "") << '"' << kSizes[i] << "\": " << s.batch_hist[i];
+  }
+  o << "}, \"stops\": {";
+  for (size_t i = 0; i < kStops.size(); ++i) {
+    o << (i ? ", " : "") << '"' << kStops[i] << "\": " << s.stops[i];
+  }
+  o << "}},\n";
+  return o.str();
 }
 
 }  // namespace
@@ -249,8 +274,9 @@ std::string format_timings(const TrainResult& result, const std::string& input,
     << "  \"timings\": {\"chunk\": " << format_double(t.chunk)
     << ", \"pretok\": " << format_double(t.pretok) << ", \"build\": " << format_double(t.build)
     << ", \"pairs\": " << format_double(t.pairs) << ", \"merge\": " << format_double(t.merge)
-    << ", \"total\": " << format_double(t.total) << "},\n"
-    << "  \"config\": {\"input\": " << json_string(input) << ", \"vocab_size\": " << cfg.vocab_size
+    << ", \"total\": " << format_double(t.total) << "},\n";
+  if (cfg.merge == MergeStrategy::IncrBatch) o << format_batch_stats(result.stats, cfg);
+  o << "  \"config\": {\"input\": " << json_string(input) << ", \"vocab_size\": " << cfg.vocab_size
     << ", \"threads\": " << cfg.threads << ", \"pretok\": \"" << name_of(cfg.pretok)
     << "\", \"pretok_reduce\": \"" << name_of(cfg.pretok_reduce) << "\", \"merge\": \""
     << name_of(cfg.merge) << "\", \"par_threshold_tokens\": " << cfg.par_threshold_tokens

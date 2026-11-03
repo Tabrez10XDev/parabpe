@@ -270,7 +270,12 @@ logic changes. `parallel_step` is a free template taking `merge(table, owner, ad
 mismatches on both 10 MB slices. Old vs new binary, alternating, median of 7 on `wikitext.full` v32k (battery, indicative):
 IncrSerial 0.704 vs 0.691 s, IncrPar at 5 threads 0.588 vs 0.585 s; `merges.txt` identical.
 
-**Next task:** B2 (`incr-batch` plumbing). B4's kill check and S8 **need the Mac on mains power and
+**B2 (2026-11-03).** `incr-batch` is wired through the CLI, `name_of` and the factory; `src/merge_batch.cpp` is a stub
+(`TODO(B3)`). New `TrainConfig` fields, `MergeStats` in `TrainResult`, `MergeEngine::stats()`, and a `"batch"` block in
+`timings.json` for incr-batch only (additive, like `pretok_reduce`; the SPEC §6 example is unchanged). `--trace` is
+accepted but does nothing until B6.
+
+**Next task:** B3 (serial batched engine, verifier, tests). B4's kill check and S8 **need the Mac on mains power and
 awake**: `.venv/bin/python -I bench/run_bench.py bench/configs/<name>.yaml --require-ac`, then
 `bench/plot.py results/*.csv --out-dir results/plots`.
 

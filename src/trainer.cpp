@@ -35,7 +35,9 @@ TrainResult run_pipeline(std::string_view text, const TrainConfig& cfg, double t
   WordTable table = build_word_table(counts);
   laps.lap(r.timings.build);
 
-  r.merges = make_merge_engine(cfg.merge)->run(table, cfg, r.timings);
+  const auto engine = make_merge_engine(cfg.merge);
+  r.merges = engine->run(table, cfg, r.timings);
+  r.stats = engine->stats();
   r.vocab = build_vocab(r.merges, cfg.special_tokens);
   r.timings.total = omp_get_wtime() - t0;
   return r;

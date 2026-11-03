@@ -82,6 +82,21 @@ TEST(Timings, ContainsSchemaFields) {
 #endif
 }
 
+TEST(Timings, BatchBlockOnlyForIncrBatch) {
+  TrainResult r;
+  r.stats.rounds = 7;
+  r.stats.batch_hist[2] = 3;
+  r.stats.stops[static_cast<size_t>(BatchStop::Capped)] = 2;
+  TrainConfig cfg;
+  EXPECT_EQ(format_timings(r, "x", cfg).find("\"batch\""), std::string::npos);
+  cfg.merge = MergeStrategy::IncrBatch;
+  const std::string json = format_timings(r, "x", cfg);
+  for (const char* key : {"\"merge\": \"incr-batch\"", "\"batch\": {\"rounds\": 7",
+                          "\"3-4\": 3", "\"capped\": 2", "\"scan_cap\": 256"}) {
+    EXPECT_NE(json.find(key), std::string::npos) << key;
+  }
+}
+
 TEST(MergeRules, GreedyLeftToRightNoOverlap) {
   EXPECT_EQ(merged({kA, kA, kA, kA}, kA, kA, 256), (std::vector<TokenId>{256, 256}));
   EXPECT_EQ(merged({kA, kA, kA}, kA, kA, 256), (std::vector<TokenId>{256, kA}));

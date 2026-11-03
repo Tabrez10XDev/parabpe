@@ -21,5 +21,6 @@ std::unique_ptr<PreTokenizer> make_omp_pretokenizer();
 
 std::unique_ptr<MergeEngine> make_naive_engine(bool parallel);
 std::unique_ptr<MergeEngine> make_incr_engine(bool parallel);
+std::unique_ptr<MergeEngine> make_batch_engine();
 
 }  // namespace parabpe::detail
