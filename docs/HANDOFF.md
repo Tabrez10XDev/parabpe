@@ -265,7 +265,12 @@ predate it. First run: `gcc` and `asan` passed, `tsan` failed 9/58 on false posi
 test at the first report, so TSan had checked nothing. B0 adds `ignore_noninstrumented_modules=1`. Check
 `gh run list` after each push.
 
-**Next task:** B1 (pure refactor into `src/incr_common.hpp`). B4's kill check and S8 **need the Mac on mains power and
+**B1 (2026-11-03).** The shared incremental-engine pieces moved from `src/merge_incr.cpp` to `src/incr_common.hpp`, no
+logic changes. `parallel_step` is a free template taking `merge(table, owner, add)`. 58/58 in Release and Debug; matrix 0
+mismatches on both 10 MB slices. Old vs new binary, alternating, median of 7 on `wikitext.full` v32k (battery, indicative):
+IncrSerial 0.704 vs 0.691 s, IncrPar at 5 threads 0.588 vs 0.585 s; `merges.txt` identical.
+
+**Next task:** B2 (`incr-batch` plumbing). B4's kill check and S8 **need the Mac on mains power and
 awake**: `.venv/bin/python -I bench/run_bench.py bench/configs/<name>.yaml --require-ac`, then
 `bench/plot.py results/*.csv --out-dir results/plots`.
 

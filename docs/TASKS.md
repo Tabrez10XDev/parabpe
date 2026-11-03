@@ -21,7 +21,7 @@ Work through the tasks in **pick-up order**. A task can start once everything in
 | 12 | S6 IncrPar | ✅ (fork per large step, not a persistent region; see HANDOFF) | S5, G1 |
 | 12b | S10 Parallel chunker | ✅ | S4, G1 |
 | 13 | B0 Batched merging: plan, proof, `tools/batchsim` | ✅ | S6 |
-| 14 | B1 Pure refactor into `src/incr_common.hpp` | ⬜ | B0 |
+| 14 | B1 Pure refactor into `src/incr_common.hpp` | ✅ | B0 |
 | 15 | B2 `incr-batch` plumbing | ⬜ | B1 |
 | 16 | B3 Serial batched engine + verifier + tests | ⬜ | B2 |
 | 17 | B4 Hashed owners + parallel rounds (**mains power** for the kill check) | ⬜ | B3 |
