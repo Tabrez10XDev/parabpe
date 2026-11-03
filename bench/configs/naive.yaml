@@ -1,0 +1,7 @@
+# Naive engines on small configurations only (PLAN.md §6), with IncrSerial as the reference.
+inputs: [data/tinystories.10M.txt, data/wikitext.10M.txt]
+threads: [1, 2, 3, 4, 5, 6, 8, 11]
+pretok: [serial]
+merge: [incr-serial, naive-serial, naive-par]
+vocab_size: [4000]
+reps: 5

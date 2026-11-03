@@ -1,0 +1,8 @@
+# PLAN.md §6 main grid: IncrSerial and IncrPar x pretok {serial, omp} x threads, vocab 32k.
+# Threads 1-5 = P-cores only, 6-11 = E-cores join (report the two regions separately).
+inputs: [data/tinystories.100M.txt, data/tinystories.1G.txt, data/wikitext.100M.txt, data/wikitext.full.txt]
+threads: [1, 2, 3, 4, 5, 6, 8, 11]
+pretok: [serial, omp]
+merge: [incr-serial, incr-par]
+vocab_size: [32000]
+reps: 5

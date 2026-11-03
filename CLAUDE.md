@@ -20,6 +20,9 @@ cmake -B build-asan -DPARABPE_ASAN=ON -DCMAKE_BUILD_TYPE=Debug   # ASan/UBSan bu
 ./build/parabpe train --input <file> --vocab-size 1000 --threads 4 --pretok omp --merge incr-serial --out runs/x
 
 python3 -m venv .venv && .venv/bin/pip install -r requirements.txt   # Python tooling
+python3 -I tests/equivalence/run_matrix.py --input data/tinystories.10M.txt --vocab-size 4000   # equivalence
+.venv/bin/python -I bench/run_bench.py bench/configs/main.yaml --require-ac   # benchmarks (mains power!)
+.venv/bin/python -I bench/plot.py results/*.csv --out-dir results/plots
 ```
 
 ## Rules

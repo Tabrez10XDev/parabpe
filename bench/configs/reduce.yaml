@@ -1,0 +1,8 @@
+# Phase 1 shard merge: bucketed (lock-free) vs critical section. Small vocab: only phase 1 matters.
+inputs: [data/tinystories.1G.txt, data/wikitext.full.txt]
+threads: [1, 2, 3, 4, 5, 6, 8, 11]
+pretok: [omp]
+pretok_reduce: [bucketed, critical]
+merge: [incr-serial]
+vocab_size: [1000]
+reps: 5

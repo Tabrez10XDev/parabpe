@@ -1,0 +1,7 @@
+# Quick end-to-end check of the harness (about 30 s).
+inputs: [data/tinystories.10M.txt]
+threads: [1, 2, 3]
+pretok: [serial, omp]
+merge: [incr-serial]
+vocab_size: [4000]
+reps: 2

@@ -1,0 +1,8 @@
+# IncrPar: sweep of the tokens-touched threshold below which the master merges alone.
+inputs: [data/wikitext.full.txt]
+threads: [5, 11]
+pretok: [omp]
+merge: [incr-par]
+par_threshold_tokens: [0, 1024, 4096, 16384, 65536, 1000000000]
+vocab_size: [32000]
+reps: 5

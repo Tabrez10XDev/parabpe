@@ -125,7 +125,44 @@ Results and takeaways are in **`docs/notes/profiling.md`** (raw output in `runs/
   on specials.
 - The spike ran on battery. S8 must run on mains power.
 
-**Next task:** N7 (bench harness), then G1 (profiling gate: a user decision on S6 effort).
+**N7 (2026-11-03).** The bench harness:
+- `bench/run_bench.py <config.yaml>` (run with `.venv/bin/python -I`; options `--reps`, `--results-dir`, `--require-ac`,
+  `--dry-run`) appends one CSV row per run to `results/<config>.csv`.
+- Each configuration gets a warm-up run (`warmup=1`).
+- The runner sets `OMP_PROC_BIND=close OMP_PLACES=cores` and uses `numactl` on multi-socket Linux.
+- Configurations that only use serial strategies run at 1 thread only. "Not implemented" strategies are skipped.
+- Every row records the `merges.txt` sha256, and the runner flags any mismatch within an (input, vocab) pair. The
+  benchmark therefore doubles as an equivalence check.
+- Every row also records the power source and the child's CPU time (`cpu_s`).
+- Phase columns are `<phase>_s`, because `pretok` and `merge` are also strategy columns.
+
+Configs in `bench/configs/`:
+- `smoke` (about 30 s)
+- `main` (the PLAN §6 grid, 100 configurations)
+- `naive` (10 MB, vocab 4k)
+- `reduce` (bucketed vs critical)
+- `threshold` (IncrPar sweep)
+- `weak` (50 MB per thread, zipped; make the slices first, the command is in the file)
+
+`bench/plot.py results/*.csv --out-dir results/plots` writes:
+- `speedup_<input>_v<vocab>.png`: per-phase speedup vs IncrSerial, with a median line, a min/max band, an ideal
+  line and a shaded E-core region.
+- `phases_*.png`: stacked bars of median phase times.
+- `amdahl.png`: serial fraction fitted on threads 1–5.
+- `weak_scaling.png` and `threshold.png`.
+- `summary.md`: the table view.
+
+Warm-up runs are excluded. Runs with wall time > 2 × CPU time are dropped as stalls and counted.
+The plots use the dataviz reference palette in fixed slot order (validated: CVD ΔE ≥ 9.1 adjacent).
+Checked with `smoke` (real runs) and a synthetic CSV for the weak and threshold plots.
+- **Finding:** on battery with the user away, the Mac sleeps mid-run even with `caffeinate -i` (`-s` only works on
+  AC). One 0.1 s run read 295 s, and two naive runs read 162 s and 553 s for 13 s of CPU (`pmset -g log` confirms
+  Sleep/DarkWake). Runs during dark wake are also throttled: serial pretok on 10 MB took 0.22 s instead of 0.09 s.
+  **S8 needs the Mac on mains power and awake.** Use `--require-ac`.
+
+**Next task:** G1 (profiling gate). It needs IncrSerial phase breakdowns on 100 MB / 1 GB (mostly in
+`docs/notes/profiling.md` already) and a **user decision** on how much effort S6 gets. S5 and S7 are unblocked and
+don't depend on G1.
 
 ## What exists
 | Path | What it is |
@@ -152,9 +189,10 @@ Results and takeaways are in **`docs/notes/profiling.md`** (raw output in `runs/
 | `include/parabpe/trainer.hpp`, `src/trainer.cpp` | The pipeline as a library: `count_words`, `train_text`, `train` (S2) |
 | `src/bpe_common.hpp` | Shared merge rules for every engine: tie-break, greedy merge, merge count (S2) |
 | `tests/interop/check_hf.py` | HF `tokenizers` token-id check of our output files (S2) |
+| `bench/run_bench.py`, `bench/plot.py`, `bench/configs/*.yaml` | Bench harness (N7); results go to `results/` (committed) |
 | `scripts/profile_phases.py`, `docs/notes/profiling.md` | N8 profiling spike + findings |
 | `tests/equivalence/run_matrix.py` | Equivalence matrix (S3); CTest `equivalence_matrix`, label `slow` |
-| `bench/`, `report/` | Empty (contain only `.gitkeep`) |
+| `report/` | Empty (contains only `.gitkeep`) |
 
 ## Environment notes (developer Mac)
 - macOS on Apple Silicon (arm64). The default C++ compiler is **Apple clang 17** (`/usr/bin/c++`).

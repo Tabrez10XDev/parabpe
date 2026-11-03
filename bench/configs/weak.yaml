@@ -1,0 +1,12 @@
+# Weak scaling of phase 1: 50 MB per thread (inputs[i] runs with threads[i]). Make the slices first:
+#   .venv/bin/python -I scripts/slice_data.py --source tinystories \
+#       --sizes 50M,100M,150M,200M,250M,300M,400M,550M --no-full
+inputs: [data/tinystories.50M.txt, data/tinystories.100M.txt, data/tinystories.150M.txt,
+         data/tinystories.200M.txt, data/tinystories.250M.txt, data/tinystories.300M.txt,
+         data/tinystories.400M.txt, data/tinystories.550M.txt]
+threads: [1, 2, 3, 4, 5, 6, 8, 11]
+zip: true
+pretok: [omp]
+merge: [incr-serial]
+vocab_size: [1000]
+reps: 5
