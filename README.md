@@ -63,7 +63,7 @@ report/            LaTeX report
 | S2 | WordTable + NaiveSerial + writer | ✅ |
 | S3 | IncrSerial (baseline) | ✅ |
 | S4 | OMP pre-tokenizer | ✅ |
-| S5 | Parallel PairStats | ⬜ |
+| S5 | Parallel PairStats | ✅ |
 | S6 | IncrPar | ⬜ |
 | S7 | NaivePar | ✅ |
 | S8 | Benchmarks | ⬜ |

@@ -150,7 +150,7 @@ TEST_P(Engines, EmptyCorpusGivesHeaderOnlyMerges) {
 
 INSTANTIATE_TEST_SUITE_P(All, Engines,
                          ::testing::Values(MergeStrategy::NaiveSerial, MergeStrategy::IncrSerial,
-                                           MergeStrategy::NaivePar));
+                                           MergeStrategy::NaivePar, MergeStrategy::IncrPar));
 
 // Every other engine against the NaiveSerial oracle on random small-alphabet corpora: long runs,
 // repeated pairs inside one word and many count ties stress the index, the stamps and the lazy
@@ -158,7 +158,9 @@ INSTANTIATE_TEST_SUITE_P(All, Engines,
 TEST(Engines, MatchNaiveOnRandomCorpora) {
   const std::vector<std::pair<MergeStrategy, int>> engines = {
       {MergeStrategy::IncrSerial, 1}, {MergeStrategy::NaivePar, 1}, {MergeStrategy::NaivePar, 3},
-      {MergeStrategy::NaivePar, 4},   {MergeStrategy::NaivePar, 16}};
+      {MergeStrategy::NaivePar, 4},   {MergeStrategy::NaivePar, 16}, {MergeStrategy::IncrPar, 1},
+      {MergeStrategy::IncrPar, 2},    {MergeStrategy::IncrPar, 3},   {MergeStrategy::IncrPar, 8},
+      {MergeStrategy::IncrPar, 16}};
   std::mt19937 rng(12345);
   for (int trial = 0; trial < 200; ++trial) {
     std::string text;

@@ -3,7 +3,7 @@
 ## Current state (2026-11-03)
 **Done:** N1 (repo skeleton), N2 (draft spec and interfaces), **N4 (Python reference + golden files)**, **N3 (data)**, **S1 (chunker + serial pre-tokenizer)** and **S2 (WordTable + NaiveSerial +
 writers + `train()`)** **S3 (IncrSerial + equivalence harness)** and **S4 (OMP pre-tokenizer + TSan CI job)**. Training works end to end
-with `--pretok serial|omp --merge naive-serial|incr-serial`; NaivePar (S7) works; IncrPar (S5/S6) is in progress.
+with `--pretok serial|omp --merge naive-serial|incr-serial`; NaivePar (S7) works. IncrPar works with a parallel phase 2 (S5) and a serial phase 3 (S6 is next).
 
 **N4 + Unicode pin (2026-10-31).** The plan for N4 → N3 → S1 was checked by an independent reviewer; its changes are
 folded into the S1/S2 cards in `docs/TASKS.md`.
@@ -172,6 +172,24 @@ is applied with `parallel for` over words (each word is a disjoint range of `tok
 - Not timed yet: this session ran on battery with the Mac sleeping and throttling. NaivePar timings come from the
   `naive` bench config in S8.
 
+**S5 (2026-11-03).** `src/merge_incr.cpp` is one `IncrEngine` for both strategies:
+- Words are split into **owners**, contiguous ranges balanced by token count: 1 owner for IncrSerial, `cfg.threads`
+  for IncrPar. Each owner has a private inverted index.
+- Global counts live in `ShardedCounts`: power-of-two shards chosen by the low hash bits. With one shard (serial),
+  no hash is computed.
+- Parallel phase 2: `omp for schedule(dynamic,1)` over owners builds each private index and counts into per-thread
+  maps pre-bucketed by shard. Shard s then sums bucket s of every thread, with no locks.
+- Phase 3 (shared, still serial; `TODO(S6)`) walks every owner's list for the chosen pair. New pairs go to the
+  owner's index. A pair whose count reaches 0 is erased from every owner.
+- Tests: IncrPar is in the golden test at threads {1,2,3,4,8,16} and in the random-corpus test at 1/2/3/8/16 threads
+  (owners can be empty there). 56/56 pass (Release and Debug).
+- Equivalence matrix on `tinystories.10M` v4000: 0 mismatches, **no strategy skipped any more**.
+- `wikitext.full`, vocab 32000 (one run each, on battery):
+  - Phase 2 drops from 0.032 s (IncrSerial) to 0.015 s at 5 threads and 0.012 s at 11.
+  - Phase 3 under IncrPar is **13–19% slower** than IncrSerial (0.75–0.79 s vs 0.66 s): each merge looks up every
+    owner's index. S6 has to win this back.
+  - `merges.txt` is identical to IncrSerial at 5 and 11 threads.
+
 **Next task:** G1 (profiling gate). It needs IncrSerial phase breakdowns on 100 MB / 1 GB (mostly in
 `docs/notes/profiling.md` already) and a **user decision** on how much effort S6 gets. S5 and S7 are unblocked and
 don't depend on G1.
@@ -188,7 +206,7 @@ don't depend on G1.
 | `include/parabpe/merge_engine.hpp` | `MergeEngine` interface, `build_word_table`, `make_merge_engine` |
 | `include/parabpe/io.hpp` + `src/io.cpp` | `bytes_to_unicode`, `build_vocab`, writers (all stubs, S2) |
 | `src/strategies.{hpp,cpp}` | Internal per-strategy constructors + factory dispatch |
-| `src/pretok_{serial,omp}.cpp`, `src/merge_{naive,incr}.cpp`, `src/word_table.cpp` | Strategies; NaivePar (S7) and IncrPar (S6) paths still throw |
+| `src/pretok_{serial,omp}.cpp`, `src/merge_{naive,incr}.cpp`, `src/word_table.cpp` | Strategies; IncrPar's phase 3 is still serial (S6) |
 | `src/main.cpp` | CLI11 `train` / `encode` subcommands, wired to the full pipeline with phase timing |
 | `CMakeLists.txt` | Targets `parabpe_core` (lib), `parabpe` (CLI), `parabpe_tests` (gtest). Options `PARABPE_NATIVE/ASAN/TSAN` |
 | `.github/workflows/ci.yml` | GCC Release, ASan and TSan (clang + LLVM libomp) jobs on ubuntu |

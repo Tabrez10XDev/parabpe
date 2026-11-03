@@ -12,10 +12,10 @@ using namespace parabpe;
 
 namespace {
 
-// Every implemented merge engine; add each new one here (S5/S6: IncrPar). Parallel engines run at
-// every thread count of the equivalence check (CLAUDE.md), serial ones once.
+// Every merge engine. Parallel engines run at every thread count of the equivalence check
+// (CLAUDE.md), serial ones once.
 const std::vector<MergeStrategy> kEngines = {MergeStrategy::NaiveSerial, MergeStrategy::IncrSerial,
-                                             MergeStrategy::NaivePar};
+                                             MergeStrategy::NaivePar, MergeStrategy::IncrPar};
 const std::vector<int> kParThreads = {1, 2, 3, 4, 8, 16};
 
 bool is_parallel(MergeStrategy m) {

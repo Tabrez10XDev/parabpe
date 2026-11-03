@@ -16,7 +16,7 @@ Work through the tasks in **pick-up order**. A task can start once everything in
 | 7 | N8 Profiling spike | ✅ | N3, N4 |
 | 8 | N7 Bench harness | ✅ | — (needs the `timings.json` schema in SPEC §6 only) |
 | 9 | G1 Profiling gate | ⬜ | S3, S4 |
-| 10 | S5 Parallel PairStats | ⬜ | S3 |
+| 10 | S5 Parallel PairStats | ✅ | S3 |
 | 11 | S7 NaivePar | ✅ | S2 |
 | 12 | S6 IncrPar | ⬜ | S5, G1 |
 | 13 | S8 Full benchmarks (on the Mac) | ⬜ | S4–S7, N7 |
