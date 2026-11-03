@@ -92,7 +92,7 @@ TEST(Timings, BatchBlockOnlyForIncrBatch) {
   cfg.merge = MergeStrategy::IncrBatch;
   const std::string json = format_timings(r, "x", cfg);
   for (const char* key : {"\"merge\": \"incr-batch\"", "\"batch\": {\"rounds\": 7",
-                          "\"3-4\": 3", "\"capped\": 2", "\"scan_cap\": 256"}) {
+                          "\"3-4\": 3", "\"capped\": 2", "\"scan_cap\": 4096"}) {
     EXPECT_NE(json.find(key), std::string::npos) << key;
   }
 }
@@ -165,7 +165,8 @@ TEST_P(Engines, EmptyCorpusGivesHeaderOnlyMerges) {
 
 INSTANTIATE_TEST_SUITE_P(All, Engines,
                          ::testing::Values(MergeStrategy::NaiveSerial, MergeStrategy::IncrSerial,
-                                           MergeStrategy::NaivePar, MergeStrategy::IncrPar));
+                                           MergeStrategy::NaivePar, MergeStrategy::IncrPar,
+                                           MergeStrategy::IncrBatch));
 
 // Every other engine against the NaiveSerial oracle on random small-alphabet corpora: long runs,
 // repeated pairs inside one word and many count ties stress the index, the stamps and the lazy
@@ -175,7 +176,8 @@ TEST(Engines, MatchNaiveOnRandomCorpora) {
       {MergeStrategy::IncrSerial, 1}, {MergeStrategy::NaivePar, 1},  {MergeStrategy::NaivePar, 3},
       {MergeStrategy::NaivePar, 4},   {MergeStrategy::NaivePar, 16}, {MergeStrategy::IncrPar, 1},
       {MergeStrategy::IncrPar, 2},    {MergeStrategy::IncrPar, 3},   {MergeStrategy::IncrPar, 8},
-      {MergeStrategy::IncrPar, 16}};
+      {MergeStrategy::IncrPar, 16},   {MergeStrategy::IncrBatch, 1}, {MergeStrategy::IncrBatch, 2},
+      {MergeStrategy::IncrBatch, 3},  {MergeStrategy::IncrBatch, 8}, {MergeStrategy::IncrBatch, 16}};
   std::mt19937 rng(12345);
   for (int trial = 0; trial < 200; ++trial) {
     std::string text;
@@ -191,6 +193,7 @@ TEST(Engines, MatchNaiveOnRandomCorpora) {
       cfg.threads = threads;
       cfg.par_threshold_tokens =
           trial % 2 ? 0 : 8;  // IncrPar: all-parallel, or a mix of both paths
+      cfg.verify_batches = true;
       const TrainResult other = train_text(text, cfg);
       ASSERT_EQ(other.merges, naive.merges)
           << "engine " << static_cast<int>(engine) << " threads " << threads << " trial " << trial

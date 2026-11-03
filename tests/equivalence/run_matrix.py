@@ -16,7 +16,7 @@ import sys
 import tempfile
 
 PRETOKS = ["serial", "omp"]
-MERGES = ["naive-serial", "incr-serial", "naive-par", "incr-par"]
+MERGES = ["naive-serial", "incr-serial", "naive-par", "incr-par", "incr-batch"]
 THREADS = [1, 2, 3, 4, 8, 16]
 OUTPUTS = ["merges.txt", "vocab.json"]
 SKIP = 77

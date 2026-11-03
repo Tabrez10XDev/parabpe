@@ -113,6 +113,7 @@ add_executable(parabpe_tests
   tests/unit/test_unicode_parity.cpp
   tests/unit/test_golden.cpp
   tests/unit/test_io.cpp
+  tests/unit/test_batch.cpp
 )
 target_link_libraries(parabpe_tests PRIVATE parabpe_core GTest::gtest_main)
 target_include_directories(parabpe_tests PRIVATE src)

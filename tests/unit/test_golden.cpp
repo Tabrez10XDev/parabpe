@@ -15,11 +15,13 @@ namespace {
 // Every merge engine. Parallel engines run at every thread count of the equivalence check
 // (CLAUDE.md), serial ones once.
 const std::vector<MergeStrategy> kEngines = {MergeStrategy::NaiveSerial, MergeStrategy::IncrSerial,
-                                             MergeStrategy::NaivePar, MergeStrategy::IncrPar};
+                                             MergeStrategy::NaivePar, MergeStrategy::IncrPar,
+                                             MergeStrategy::IncrBatch};
 const std::vector<int> kParThreads = {1, 2, 3, 4, 8, 16};
 
 bool is_parallel(MergeStrategy m) {
-  return m == MergeStrategy::NaivePar || m == MergeStrategy::IncrPar;
+  return m == MergeStrategy::NaivePar || m == MergeStrategy::IncrPar ||
+         m == MergeStrategy::IncrBatch;
 }
 
 }  // namespace
@@ -38,6 +40,7 @@ TEST(Golden, MergesAndVocabMatchReference) {
         cfg.merge = engine;
         cfg.threads = threads;
         cfg.par_threshold_tokens = 0;  // IncrPar: every merge step takes the parallel path
+        cfg.verify_batches = true;     // IncrBatch: every member against the sequential oracle
         const std::string text = test::read_file(gc.dir / "input.txt");
         const TrainResult r = train_text(text, cfg);
         EXPECT_EQ(format_merges(r.merges, r.vocab), test::read_file(gc.dir / "merges.txt"));

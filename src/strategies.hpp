@@ -13,6 +13,8 @@
 
 namespace parabpe::detail {
 
+enum class BatchRule;  // batch_select.hpp
+
 // Unique words -> WordCounts sorted by raw bytes (SPEC.md §6). Shared by the pre-tokenizers.
 WordCounts sorted_word_counts(std::vector<std::pair<std::string_view, uint64_t>> entries);
 
@@ -22,5 +24,6 @@ std::unique_ptr<PreTokenizer> make_omp_pretokenizer();
 std::unique_ptr<MergeEngine> make_naive_engine(bool parallel);
 std::unique_ptr<MergeEngine> make_incr_engine(bool parallel);
 std::unique_ptr<MergeEngine> make_batch_engine();
+std::unique_ptr<MergeEngine> make_batch_engine(BatchRule rule);  // tests: the rules that don't ship
 
 }  // namespace parabpe::detail
