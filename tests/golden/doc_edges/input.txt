@@ -1,0 +1,5 @@
+<|endoftext|>  leading spaces here<|endoftext|><|endoftext|>trailing spaces   <|endoftext|>
+
+newlines first<|endoftext|>   <|endoftext|>
+<|endoftext|>tab	sep	<|endoftext|> <|endoftext|>x<|endoftext|>end of corpus  
+<|endoftext|>

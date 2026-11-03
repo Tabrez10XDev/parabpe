@@ -1,0 +1,14 @@
+build*/
+cmake-build-*/
+data/
+runs/
+.venv/
+__pycache__/
+*.pyc
+.DS_Store
+.vscode/
+.idea/
+report/*.aux
+report/*.log
+report/*.out
+report/*.pdf

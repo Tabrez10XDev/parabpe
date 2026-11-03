@@ -1,0 +1,2 @@
+vocab_size 297
+special <|endoftext|>

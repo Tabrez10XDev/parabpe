@@ -1,0 +1,8 @@
+line one
+line two
+
+line three
+<|endoftext|>tab	sep		doubleverticalformfeed<|endoftext|>infosepgrouprecordunitnextline<|endoftext|>nb space line sep para sep ideo　space zero​width<|endoftext|>mongolian ᠎ vowel᠎sep ᠎᠎ x<|endoftext|>﻿bom at start<|endoftext|>it's IT'S It'S they’re we’ve 's 'S<|endoftext|>café vs café ñ<|endoftext|>½ ¾ ² ³ ¹ Ⅻ ①②<|endoftext|>fullwidth １２３ ａｂｃ arabic ٣٤٥<|endoftext|>trailing runs   
+
+   <|endoftext|>  	 
+ 
