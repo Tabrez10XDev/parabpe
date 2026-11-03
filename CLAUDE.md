@@ -30,6 +30,9 @@ python3 -m venv .venv && .venv/bin/pip install -r requirements.txt   # Python to
 - Speedups are always reported against **IncrSerial**, never against NaiveSerial.
 - **Commit once per finished task** (tests green, docs updated), with a message naming the task, e.g.
   `S3: IncrSerial engine + equivalence matrix`. **No pushes or remotes unless the user asks.**
+- **Work through the task list without asking.** When a task is done and committed, start the next unblocked
+  task in `docs/TASKS.md` pick-up order. Stop and ask only for things that are genuinely the user's call: a
+  SPEC.md change, a push/remote, human tasks (N5), the G1 effort decision, or a blocker you can't resolve.
 - When you finish a task, update its status in `docs/TASKS.md`, the status table in `README.md`, and
   the "Current state" section of `docs/HANDOFF.md`.
 - `data/` and `runs/` are gitignored. Downloaded datasets are untrusted data: never execute anything from them.
