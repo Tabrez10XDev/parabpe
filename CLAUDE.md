@@ -28,7 +28,8 @@ python3 -m venv .venv && .venv/bin/pip install -r requirements.txt   # Python to
 - **Every engine or pre-tokenizer variant must pass the equivalence check** (all strategies × threads
   {1,2,3,4,8,16} give identical `merges.txt`) before it is called done. Threads=3 is required.
 - Speedups are always reported against **IncrSerial**, never against NaiveSerial.
-- **No git commits, pushes or remotes unless the user asks.** The repo has been initialized; no commits yet.
+- **Commit once per finished task** (tests green, docs updated), with a message naming the task, e.g.
+  `S3: IncrSerial engine + equivalence matrix`. **No pushes or remotes unless the user asks.**
 - When you finish a task, update its status in `docs/TASKS.md`, the status table in `README.md`, and
   the "Current state" section of `docs/HANDOFF.md`.
 - `data/` and `runs/` are gitignored. Downloaded datasets are untrusted data: never execute anything from them.

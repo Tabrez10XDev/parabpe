@@ -1,9 +1,9 @@
 # Handoff: read this first
 
-## Current state (2026-10-31)
+## Current state (2026-11-03)
 **Done:** N1 (repo skeleton), N2 (draft spec and interfaces), **N4 (Python reference + golden files)**, **N3 (data)**, **S1 (chunker + serial pre-tokenizer)** and **S2 (WordTable + NaiveSerial +
-writers + `train()`)**. Training works end to end with `--pretok serial --merge naive-serial`; IncrSerial, the parallel
-engines and the OMP pre-tokenizer are still stubs.
+writers + `train()`)** and **S3 (IncrSerial + equivalence harness)**. Training works end to end with the default
+`--pretok serial --merge incr-serial`; the parallel engines and the OMP pre-tokenizer are still stubs.
 
 **N4 + Unicode pin (2026-10-31).** The plan for N4 → N3 → S1 was checked by an independent reviewer; its changes are
 folded into the S1/S2 cards in `docs/TASKS.md`.
@@ -21,13 +21,14 @@ folded into the S1/S2 cards in `docs/TASKS.md`.
   reordered. `make_golden.py --check` reports no drift.
 - The exact byte format of `vocab.json` (which S2 must match) is in `reference/README.md`.
 
-Verified on this machine (2026-11-02):
-- `cmake -B build && cmake --build build -j && ctest --test-dir build`: **46/46 tests**, zero compiler warnings.
+Verified on this machine (2026-11-03):
+- `cmake -B build && cmake --build build -j && ctest --test-dir build`: **50/50 tests** (49 gtest + the `slow`
+  equivalence matrix), zero compiler warnings. `ctest -LE slow` skips the matrix. The Debug build (`build-debug`) passes too.
 - `.venv/bin/python -m unittest discover reference`: 17/17. `make_golden.py --check`: no drift.
-- `./build/parabpe train --input data/tinystories.10M.txt --vocab-size 1000 --merge naive-serial --out runs/x` works
-  end to end (the default `--merge incr-serial` still throws `not implemented (S3)`).
+- `./build/parabpe train --input data/tinystories.10M.txt --vocab-size 1000 --out runs/x` works end to end (IncrSerial).
 
-Git: `git init` has been run, there are **no commits**, and there is no remote. Commit only when the user asks.
+Git: the user made the first commit (`Initial setup`, 2026-11-03). From S3 on, **one commit per finished task**,
+made when the task is done (the user asked for this). There is no remote, so CI has still never run.
 
 **N3 data (2026-11-01).** `scripts/get_data.sh [tinystories|wikitext|enwik9|all]` + `scripts/slice_data.py`.
 - In `data/` (gitignored): `tinystories.{10M,100M,1G}.txt` (no `.full`; the 2.2 GB raw file is in `data/raw/`) and
@@ -68,7 +69,26 @@ rules that **every engine must use**. `MergeEngine::run` now takes `PhaseTimings
 - Code in the new and rewritten files is formatted with Xcode's clang-format
   (`{BasedOnStyle: Google, ColumnLimit: 100, AllowShortCaseLabelsOnASingleLine: true, Standard: c++20, SortIncludes: Never, AllowShortFunctionsOnASingleLine: Inline}`).
 
-**Next task:** S4 (OMP pre-tokenizer + TSan CI) and S3 (IncrSerial + equivalence harness); both are unblocked.
+**S3 (2026-11-03).** IncrSerial in `src/merge_incr.cpp`: pair counts + inverted index (pair → word ids, consecutive
+duplicates dropped) + a lazy max-heap ordered by `better_pair`, whole-word diff per affected word, `last_touched` stamps,
+heap rebuild above 4× live pairs. Because a merge creates a fresh id `z`, the pairs new to a word are exactly the ones
+containing `z`, so only those are appended to the index.
+- **Bug found and fixed while building it:** pairs containing `z` were pushed onto the heap before `token_bytes[z]`
+  existed, so the comparator read past the end of the vector (wrong tie-breaks, 9/11 golden cases failed). UBSan does
+  not see this. The Debug build now turns on libc++/libstdc++ bounds checks (`_LIBCPP_HARDENING_MODE_EXTENSIVE`,
+  `_GLIBCXX_ASSERTIONS`); with the bug put back, the Debug tests stop with SIGTRAP (exit 133).
+- Tests: `kEngines` in `test_golden.cpp` now includes IncrSerial (byte-exact on all 11 cases); `test_io.cpp` runs the
+  early-stop and empty-corpus tests for both serial engines and compares IncrSerial with NaiveSerial on 200 random
+  small-alphabet corpora (many count ties, long runs).
+- `tests/equivalence/run_matrix.py --input F --vocab-size N [--threads ...] [--binary ...]`: every implemented
+  (pretok, merge) pair × threads {1,2,3,4,8,16} against the oracle (serial + NaiveSerial at 1 thread), comparing sha256 of
+  `merges.txt` and `vocab.json`. Strategies that throw "not implemented" are listed as SKIP. Exit 0 / 1 mismatch / 77 no input.
+  Registered in CTest as `equivalence_matrix` (label `slow`, tinystories.10M at vocab 4000): 12/12 identical, 6 pairs skipped.
+- **Real data:** IncrSerial == NaiveSerial (merges.txt + vocab.json) on `tinystories.10M` and `wikitext.10M` at vocab 1000
+  and 4000, and == `bpe_ref.py` at vocab 1000. Merge phase at vocab 4000: TinyStories 1.087 s → 0.0087 s (**125×**),
+  WikiText 12.74 s → 0.048 s (**266×**); the card asked for ≥10×. Outputs are in `runs/s3/`.
+
+**Next task:** S4 (OMP pre-tokenizer + TSan CI). After that, N7/N8 (bench harness, profiling), then G1.
 
 ## What exists
 | Path | What it is |
@@ -95,7 +115,8 @@ rules that **every engine must use**. `MergeEngine::run` now takes `PhaseTimings
 | `include/parabpe/trainer.hpp`, `src/trainer.cpp` | The pipeline as a library: `count_words`, `train_text`, `train` (S2) |
 | `src/bpe_common.hpp` | Shared merge rules for every engine: tie-break, greedy merge, merge count (S2) |
 | `tests/interop/check_hf.py` | HF `tokenizers` token-id check of our output files (S2) |
-| `tests/equivalence/`, `bench/`, `report/` | Empty (contain only `.gitkeep`) |
+| `tests/equivalence/run_matrix.py` | Equivalence matrix (S3); CTest `equivalence_matrix`, label `slow` |
+| `bench/`, `report/` | Empty (contain only `.gitkeep`) |
 
 ## Environment notes (developer Mac)
 - macOS on Apple Silicon (arm64). The default C++ compiler is **Apple clang 17** (`/usr/bin/c++`).

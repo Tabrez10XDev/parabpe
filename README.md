@@ -61,7 +61,7 @@ report/            LaTeX report
 | N4 | Python reference + golden files | ✅ |
 | S1 | Chunker + serial pre-tokenizer | ✅ |
 | S2 | WordTable + NaiveSerial + writer | ✅ |
-| S3 | IncrSerial (baseline) | ⬜ |
+| S3 | IncrSerial (baseline) | ✅ |
 | S4 | OMP pre-tokenizer | ⬜ |
 | S5 | Parallel PairStats | ⬜ |
 | S6 | IncrPar | ⬜ |

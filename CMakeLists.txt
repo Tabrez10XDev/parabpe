@@ -70,6 +70,9 @@ if(PARABPE_NATIVE AND NOT PARABPE_ASAN AND NOT PARABPE_TSAN)
     target_compile_options(parabpe_flags INTERFACE -mcpu=native)
   endif()
 endif()
+# Debug: bounds-checked operator[] in libc++ / libstdc++ (ABI-compatible, so gtest needn't match).
+target_compile_definitions(parabpe_flags INTERFACE
+  $<$<CONFIG:Debug>:_LIBCPP_HARDENING_MODE=_LIBCPP_HARDENING_MODE_EXTENSIVE _GLIBCXX_ASSERTIONS>)
 if(PARABPE_ASAN)
   target_compile_options(parabpe_flags INTERFACE -fsanitize=address,undefined -fno-omit-frame-pointer -g)
   target_link_options(parabpe_flags INTERFACE -fsanitize=address,undefined)
@@ -115,3 +118,13 @@ target_include_directories(parabpe_tests PRIVATE src)
 target_compile_definitions(parabpe_tests PRIVATE PARABPE_GOLDEN_DIR="${CMAKE_SOURCE_DIR}/tests/golden")
 include(GoogleTest)
 gtest_discover_tests(parabpe_tests)
+
+# Equivalence matrix on real data (S3). Skipped (exit 77) until data/ exists; `ctest -LE slow` omits it.
+find_package(Python3 COMPONENTS Interpreter)
+if(Python3_FOUND)
+  add_test(NAME equivalence_matrix
+           COMMAND ${Python3_EXECUTABLE} -I ${CMAKE_SOURCE_DIR}/tests/equivalence/run_matrix.py
+                   --input ${CMAKE_SOURCE_DIR}/data/tinystories.10M.txt --vocab-size 4000
+                   --binary $<TARGET_FILE:parabpe>)
+  set_tests_properties(equivalence_matrix PROPERTIES LABELS slow SKIP_RETURN_CODE 77 TIMEOUT 1800)
+endif()

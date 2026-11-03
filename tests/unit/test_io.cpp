@@ -2,6 +2,7 @@
 
 #include <gtest/gtest.h>
 
+#include <random>
 #include <set>
 #include <stdexcept>
 #include <string>
@@ -124,10 +125,12 @@ TEST(WordTable, FlattensBytes) {
   EXPECT_EQ(t.last_touched.size(), 3u);
 }
 
-TEST(NaiveSerial, StopsEarlyWhenNoPairsRemain) {
+class SerialEngines : public ::testing::TestWithParam<MergeStrategy> {};
+
+TEST_P(SerialEngines, StopsEarlyWhenNoPairsRemain) {
   TrainConfig cfg;
   cfg.vocab_size = 256 + 1 + 50;
-  cfg.merge = MergeStrategy::NaiveSerial;
+  cfg.merge = GetParam();
   const TrainResult r = train_text("ab ab", cfg);
   ASSERT_EQ(r.merges.size(), 2u);  // (a,b) then (Ġ,ab)
   EXPECT_EQ(r.merges[0], (Merge{kA, kB, 257}));
@@ -135,11 +138,33 @@ TEST(NaiveSerial, StopsEarlyWhenNoPairsRemain) {
   EXPECT_EQ(r.vocab.size(), 259u);
 }
 
-TEST(NaiveSerial, EmptyCorpusGivesHeaderOnlyMerges) {
+TEST_P(SerialEngines, EmptyCorpusGivesHeaderOnlyMerges) {
   TrainConfig cfg;
   cfg.vocab_size = 300;
-  cfg.merge = MergeStrategy::NaiveSerial;
+  cfg.merge = GetParam();
   const TrainResult r = train_text("", cfg);
   EXPECT_TRUE(r.merges.empty());
   EXPECT_EQ(format_merges(r.merges, r.vocab), "#version: 0.2\n");
+}
+
+INSTANTIATE_TEST_SUITE_P(Engines, SerialEngines,
+                         ::testing::Values(MergeStrategy::NaiveSerial, MergeStrategy::IncrSerial));
+
+// IncrSerial against the NaiveSerial oracle on random small-alphabet corpora: long runs, repeated
+// pairs inside one word and many count ties stress the index, the stamps and the lazy heap.
+TEST(IncrSerial, MatchesNaiveOnRandomCorpora) {
+  std::mt19937 rng(12345);
+  for (int trial = 0; trial < 200; ++trial) {
+    std::string text;
+    const int n = 1 + static_cast<int>(rng() % 400);
+    const std::string alphabet = trial % 2 ? "ab " : "abc \n";
+    for (int i = 0; i < n; ++i) text += alphabet[rng() % alphabet.size()];
+    TrainConfig cfg;
+    cfg.vocab_size = 256 + 1 + 1 + rng() % 120;
+    cfg.merge = MergeStrategy::NaiveSerial;
+    const TrainResult naive = train_text(text, cfg);
+    cfg.merge = MergeStrategy::IncrSerial;
+    const TrainResult incr = train_text(text, cfg);
+    ASSERT_EQ(incr.merges, naive.merges) << "trial " << trial << " text \"" << text << "\"";
+  }
 }

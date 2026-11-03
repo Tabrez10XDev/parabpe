@@ -12,8 +12,8 @@ using namespace parabpe;
 
 namespace {
 
-// Every implemented merge engine; add each new one here (S3: IncrSerial, S6/S7: parallel).
-const std::vector<MergeStrategy> kEngines = {MergeStrategy::NaiveSerial};
+// Every implemented merge engine; add each new one here (S6/S7: parallel).
+const std::vector<MergeStrategy> kEngines = {MergeStrategy::NaiveSerial, MergeStrategy::IncrSerial};
 
 }  // namespace
 
