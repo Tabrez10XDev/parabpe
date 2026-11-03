@@ -72,8 +72,9 @@ TEST(Timings, ContainsSchemaFields) {
   for (const char* key :
        {"\"merges\": 1", "\"chunk\"", "\"pretok\"", "\"build\"", "\"pairs\"", "\"merge\"",
         "\"total\"", "\"input\": \"data/x \\\"quoted\\\".txt\"", "\"vocab_size\": 32000",
-        "\"pretok\": \"serial\"", "\"merge\": \"incr-serial\"", "\"cpu_model\"",
-        "\"physical_cores\"", "\"logical_cores\"", "\"smt\"", "\"os\"", "\"git_sha\""}) {
+        "\"pretok\": \"serial\"", "\"pretok_reduce\": \"bucketed\"", "\"merge\": \"incr-serial\"",
+        "\"cpu_model\"", "\"physical_cores\"", "\"logical_cores\"", "\"smt\"", "\"os\"",
+        "\"git_sha\""}) {
     EXPECT_NE(json.find(key), std::string::npos) << key;
   }
 #ifdef __APPLE__

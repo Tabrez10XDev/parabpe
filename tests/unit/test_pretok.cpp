@@ -3,6 +3,7 @@
 #include <gtest/gtest.h>
 
 #include <filesystem>
+#include <random>
 #include <stdexcept>
 #include <string>
 #include <vector>
@@ -26,12 +27,19 @@ std::vector<std::string> split(const std::string& pattern, std::string_view text
 }
 
 WordCounts pretokenize(std::string_view text, const std::vector<std::string>& specials,
-                       PretokStrategy strategy = PretokStrategy::Serial) {
+                       PretokStrategy strategy = PretokStrategy::Serial, int threads = 1,
+                       PretokReduce reduce = PretokReduce::Bucketed,
+                       size_t work_unit_bytes = TrainConfig{}.work_unit_bytes) {
   TrainConfig cfg;
   cfg.special_tokens = specials;
-  const auto units = make_work_units(text, specials, cfg.work_unit_bytes);
+  cfg.threads = threads;
+  cfg.pretok_reduce = reduce;
+  const auto units = make_work_units(text, specials, work_unit_bytes);
   return make_pretokenizer(strategy)->run(units, cfg);
 }
+
+constexpr int kThreads[] = {1, 2, 3, 4, 8, 16};
+constexpr PretokReduce kReduces[] = {PretokReduce::Bucketed, PretokReduce::Critical};
 
 std::string words_tsv(const WordCounts& counts) {
   return format_words(counts);
@@ -110,4 +118,48 @@ TEST(Golden, WordsTsvMatchesReference) {
     const std::string text = test::read_file(gc.dir / "input.txt");
     EXPECT_EQ(words_tsv(pretokenize(text, gc.specials)), test::read_file(gc.dir / "words.tsv"));
   }
+}
+
+TEST(Golden, OmpWordsTsvMatchesReference) {
+  // Tiny work units, so even the small golden inputs are spread over several units and threads.
+  for (const auto& gc : test::golden_cases()) {
+    const std::string text = test::read_file(gc.dir / "input.txt");
+    const std::string expected = test::read_file(gc.dir / "words.tsv");
+    for (int t : kThreads) {
+      for (PretokReduce r : kReduces) {
+        SCOPED_TRACE(gc.name + " threads " + std::to_string(t) + " reduce " +
+                     std::to_string(static_cast<int>(r)));
+        EXPECT_EQ(words_tsv(pretokenize(text, gc.specials, PretokStrategy::OMP, t, r, 16)),
+                  expected);
+      }
+    }
+  }
+}
+
+TEST(OmpPreTokenizer, MatchesSerialOnManyDocuments) {
+  std::mt19937 rng(7);
+  const std::vector<std::string> pieces = {
+      "the", " cat", " sat", "!!", " 42", "\n\n", "  ", "\xC3\xA9t\xC3\xA9", "'s", " \xE4\xB8\xAD"};
+  std::string text;
+  for (int i = 0; i < 20000; ++i) {
+    text += pieces[rng() % pieces.size()];
+    if (rng() % 50 == 0) text += "<|endoftext|>";
+  }
+  const std::string expected = words_tsv(pretokenize(text, {"<|endoftext|>"}));
+  for (int t : kThreads) {
+    for (PretokReduce r : kReduces) {
+      SCOPED_TRACE("threads " + std::to_string(t));
+      EXPECT_EQ(words_tsv(pretokenize(text, {"<|endoftext|>"}, PretokStrategy::OMP, t, r, 256)),
+                expected);
+    }
+  }
+}
+
+TEST(OmpPreTokenizer, ErrorsInsideTheParallelRegionPropagate) {
+  TrainConfig cfg;
+  cfg.pattern = "a";  // leaves 'b' uncovered: Matcher throws inside a worker thread
+  cfg.special_tokens = {};
+  cfg.threads = 4;
+  const auto units = make_work_units("aaaa ab aaaa ab", {}, 2);
+  EXPECT_THROW(make_pretokenizer(PretokStrategy::OMP)->run(units, cfg), std::runtime_error);
 }

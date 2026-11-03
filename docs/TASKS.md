@@ -11,7 +11,7 @@ Work through the tasks in **pick-up order**. A task can start once everything in
 | 2 | N3 Data scripts | ✅ (TinyStories + WikiText run; enwik9 path written, not run) | — |
 | 3 | S1 Chunker + serial pre-tokenizer | ✅ | N3, N4 |
 | 4 | S2 WordTable + NaiveSerial + writer + `train()` | ✅ | S1 |
-| 5 | S4 OMP pre-tokenizer + TSan CI | ⬜ | S1 |
+| 5 | S4 OMP pre-tokenizer + TSan CI | ✅ (TSan job written, runs once pushed) | S1 |
 | 6 | S3 IncrSerial + equivalence harness | ✅ | S2 |
 | 7 | N8 Profiling spike | ⬜ | N3, N4 |
 | 8 | N7 Bench harness | ⬜ | — (needs the `timings.json` schema in SPEC §6 only) |
@@ -156,8 +156,9 @@ Done 2026-11-02 (ASan on CI only; it can't run on this Mac, so UBSan was used lo
 Files: `src/pretok_omp.cpp`, `.github/workflows/ci.yml`, `tests/unit/test_pretok.cpp`.
 
 Implementation:
-- `#pragma omp parallel`: each thread has its own `Matcher` and T local maps (**pre-bucketed** by the high bits of the
-  hash: `bucket = hash >> (64 − log2T)`, rounded up to a power of 2). Use `#pragma omp for schedule(dynamic,1)` over work units.
+- `#pragma omp parallel`: each thread has its own `Matcher` and T local maps (**pre-bucketed** by the **low** bits of the
+  hash: `bucket = hash & (B − 1)`, B = T rounded up to a power of 2). Not the high bits: `ankerl` maps pick their slot
+  from the high bits, so high-bit bucketing made the local maps degenerate (50× slower at 3 threads, found in S4). Use `#pragma omp for schedule(dynamic,1)` over work units.
 - After the implicit barrier, thread t merges bucket t from every thread's local maps into its own shard map.
   No locks are needed. Concatenate the shards and sort by bytes.
 - Add a variant flag or config, used for the report, for a `critical`-section merge to compare against.

@@ -116,6 +116,10 @@ const char* name_of(PretokStrategy s) {
   return s == PretokStrategy::Serial ? "serial" : "omp";
 }
 
+const char* name_of(PretokReduce r) {
+  return r == PretokReduce::Bucketed ? "bucketed" : "critical";
+}
+
 const char* name_of(MergeStrategy s) {
   switch (s) {
     case MergeStrategy::NaiveSerial: return "naive-serial";
@@ -248,8 +252,8 @@ std::string format_timings(const TrainResult& result, const std::string& input,
     << ", \"total\": " << format_double(t.total) << "},\n"
     << "  \"config\": {\"input\": " << json_string(input) << ", \"vocab_size\": " << cfg.vocab_size
     << ", \"threads\": " << cfg.threads << ", \"pretok\": \"" << name_of(cfg.pretok)
-    << "\", \"merge\": \"" << name_of(cfg.merge)
-    << "\", \"par_threshold_tokens\": " << cfg.par_threshold_tokens
+    << "\", \"pretok_reduce\": \"" << name_of(cfg.pretok_reduce) << "\", \"merge\": \""
+    << name_of(cfg.merge) << "\", \"par_threshold_tokens\": " << cfg.par_threshold_tokens
     << ", \"work_unit_bytes\": " << cfg.work_unit_bytes << "},\n"
     << "  \"hardware\": {\"cpu_model\": " << json_string(h.cpu_model)
     << ", \"physical_cores\": " << h.physical_cores << ", \"logical_cores\": " << h.logical_cores

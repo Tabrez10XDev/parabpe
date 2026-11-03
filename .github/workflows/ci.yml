@@ -51,5 +51,37 @@ jobs:
       - name: Test
         run: ctest --test-dir build --output-on-failure
 
-  # TODO(S4): add a clang + LLVM libomp ThreadSanitizer job once parallel code lands (reuse the PCRE2 steps).
-  # (GCC's libgomp is not TSan-instrumented and reports false races.)
+  # ThreadSanitizer needs clang + LLVM's libomp (GCC's libgomp is not instrumented and reports
+  # false races). LLVM's Archer tool (libarcher.so) tells TSan about OpenMP barriers and tasks.
+  tsan:
+    runs-on: ubuntu-latest
+    env:
+      CC: clang
+      CXX: clang++
+      OMP_NUM_THREADS: 4
+      TSAN_OPTIONS: halt_on_error=1 second_deadlock_stack=1
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install deps
+        run: sudo apt-get update && sudo apt-get install -y ninja-build clang libomp-dev
+      # SPEC.md §2 pins Unicode 16.0 (PCRE2 10.45); Ubuntu's libpcre2-dev is older.
+      - name: Cache PCRE2
+        id: pcre2-cache
+        uses: actions/cache@v4
+        with:
+          path: ~/pcre2
+          key: pcre2-10.45-${{ runner.os }}
+      - name: Build PCRE2
+        if: steps.pcre2-cache.outputs.cache-hit != 'true'
+        run: scripts/build_pcre2.sh ~/pcre2
+      - name: Configure
+        run: cmake -B build -G Ninja -DCMAKE_BUILD_TYPE=RelWithDebInfo -DPARABPE_TSAN=ON -DPCRE2_INCLUDE_DIR=$HOME/pcre2/include -DPCRE2_LIBRARY=$HOME/pcre2/lib/libpcre2-8.a
+      - name: Build
+        run: cmake --build build
+      - name: Find Archer
+        run: |
+          archer=$(find /usr/lib -name 'libarcher.so' | head -n1)
+          echo "archer: ${archer:-not found}"
+          if [ -n "$archer" ]; then echo "OMP_TOOL_LIBRARIES=$archer" >> "$GITHUB_ENV"; fi
+      - name: Test
+        run: ctest --test-dir build --output-on-failure -LE slow

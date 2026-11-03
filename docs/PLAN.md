@@ -64,7 +64,7 @@ Best pair = highest count. On a tie, take the lexicographically largest **tuple*
      ▼
  PHASE 1  PreTokenizer (OMP, dynamic over work units)
           per thread: PCRE2 split → local map<bytes,count>, PRE-BUCKETED into T buckets
-                      by high hash bits
+                      by low hash bits (the maps index by the high bits)
           barrier → thread t merges bucket t from all T local maps (no locks, O(N) total work)
      ▼
  WordTable (SoA: flat tokens[], offset[], len[], freq[], last_touched[])

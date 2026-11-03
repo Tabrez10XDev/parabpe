@@ -26,6 +26,8 @@ struct Merge {
 };
 
 enum class PretokStrategy { Serial, OMP };
+// OMP pre-tokenizer: how thread-local word maps are combined (critical = the report's baseline).
+enum class PretokReduce { Bucketed, Critical };
 enum class MergeStrategy { NaiveSerial, IncrSerial, NaivePar, IncrPar };
 
 struct TrainConfig {
@@ -34,6 +36,7 @@ struct TrainConfig {
   std::string pattern = kGPT2Pattern;
   std::vector<std::string> special_tokens = {"<|endoftext|>"};
   PretokStrategy pretok = PretokStrategy::Serial;
+  PretokReduce pretok_reduce = PretokReduce::Bucketed;
   MergeStrategy merge = MergeStrategy::IncrSerial;
   size_t par_threshold_tokens = 4096;  // IncrPar: below this, the master does the step alone
   size_t work_unit_bytes = 1 << 20;    // fixed, independent of thread count (SPEC.md §2)

@@ -44,6 +44,8 @@ int main(int argc, char** argv) {
 
   const std::map<std::string, PretokStrategy> pretok_map{
       {"serial", PretokStrategy::Serial}, {"omp", PretokStrategy::OMP}};
+  const std::map<std::string, PretokReduce> reduce_map{
+      {"bucketed", PretokReduce::Bucketed}, {"critical", PretokReduce::Critical}};
   const std::map<std::string, MergeStrategy> merge_map{
       {"naive-serial", MergeStrategy::NaiveSerial},
       {"incr-serial", MergeStrategy::IncrSerial},
@@ -58,6 +60,9 @@ int main(int argc, char** argv) {
   tr->add_option("--vocab-size", cfg.vocab_size)->check(CLI::Range(257, 1 << 20));
   tr->add_option("--threads", cfg.threads)->check(CLI::PositiveNumber);
   tr->add_option("--pretok", cfg.pretok)->transform(CLI::CheckedTransformer(pretok_map));
+  tr->add_option("--pretok-reduce", cfg.pretok_reduce,
+                 "OMP pre-tokenizer merge: bucketed (default) or critical")
+      ->transform(CLI::CheckedTransformer(reduce_map));
   tr->add_option("--merge", cfg.merge)->transform(CLI::CheckedTransformer(merge_map));
   tr->add_option("--par-threshold-tokens", cfg.par_threshold_tokens);
   tr->add_option("--work-unit-bytes", cfg.work_unit_bytes);

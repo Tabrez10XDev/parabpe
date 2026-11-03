@@ -2,8 +2,8 @@
 
 ## Current state (2026-11-03)
 **Done:** N1 (repo skeleton), N2 (draft spec and interfaces), **N4 (Python reference + golden files)**, **N3 (data)**, **S1 (chunker + serial pre-tokenizer)** and **S2 (WordTable + NaiveSerial +
-writers + `train()`)** and **S3 (IncrSerial + equivalence harness)**. Training works end to end with the default
-`--pretok serial --merge incr-serial`; the parallel engines and the OMP pre-tokenizer are still stubs.
+writers + `train()`)** **S3 (IncrSerial + equivalence harness)** and **S4 (OMP pre-tokenizer + TSan CI job)**. Training works end to end
+with `--pretok serial|omp --merge naive-serial|incr-serial`; the parallel merge engines (S5–S7) are still stubs.
 
 **N4 + Unicode pin (2026-10-31).** The plan for N4 → N3 → S1 was checked by an independent reviewer; its changes are
 folded into the S1/S2 cards in `docs/TASKS.md`.
@@ -22,8 +22,8 @@ folded into the S1/S2 cards in `docs/TASKS.md`.
 - The exact byte format of `vocab.json` (which S2 must match) is in `reference/README.md`.
 
 Verified on this machine (2026-11-03):
-- `cmake -B build && cmake --build build -j && ctest --test-dir build`: **50/50 tests** (49 gtest + the `slow`
-  equivalence matrix), zero compiler warnings. `ctest -LE slow` skips the matrix. The Debug build (`build-debug`) passes too.
+- `cmake -B build && cmake --build build -j && ctest --test-dir build`: **53/53 tests** (52 gtest + the `slow`
+  equivalence matrix, now 24/24 identical), zero compiler warnings. `ctest -LE slow` skips the matrix. The Debug build (`build-debug`) passes too.
 - `.venv/bin/python -m unittest discover reference`: 17/17. `make_golden.py --check`: no drift.
 - `./build/parabpe train --input data/tinystories.10M.txt --vocab-size 1000 --out runs/x` works end to end (IncrSerial).
 
@@ -88,7 +88,34 @@ containing `z`, so only those are appended to the index.
   and 4000, and == `bpe_ref.py` at vocab 1000. Merge phase at vocab 4000: TinyStories 1.087 s → 0.0087 s (**125×**),
   WikiText 12.74 s → 0.048 s (**266×**); the card asked for ≥10×. Outputs are in `runs/s3/`.
 
-**Next task:** S4 (OMP pre-tokenizer + TSan CI). After that, N7/N8 (bench harness, profiling), then G1.
+**S4 (2026-11-03).** `src/pretok_omp.cpp`: one `parallel` region, a `Matcher` per thread, `omp for schedule(dynamic,1)`
+over work units into per-thread maps pre-bucketed by **low** hash bits (B = T rounded up to a power of 2); after the
+barrier, `omp for` over buckets merges bucket b of every thread into shard b (no locks); shards are concatenated and
+sorted. Per-thread and per-shard structs are `alignas(64)`. Exceptions inside the region are captured and rethrown.
+- New config `TrainConfig::pretok_reduce` (`--pretok-reduce bucketed|critical`): `critical` merges one map per thread
+  into a global map in a critical section, the report's comparison. `timings.json` `config` gained `"pretok_reduce"`
+  (additive, like `performance_cores`; SPEC §6 example not changed).
+- **Perf bug found:** bucketing by the HIGH hash bits (as the card said) made 2 threads 6.6× and 3 threads 51× slower than
+  serial, because `ankerl` also indexes by the high bits. Fixed by using the low bits; card and PLAN updated.
+- Tests: golden `words.tsv` for OMP × threads {1,2,3,4,8,16} × {bucketed, critical} with 16-byte work units; OMP vs
+  serial on a 20k-piece many-document text; error propagation from a worker thread. Debug (bounds-checked) build passes.
+- Acceptance: `words.tsv` identical to serial on both 10 MB slices (threads {1,2,3,4,8}, both variants), on
+  `tinystories.1G` (threads {1,2,3,4,5,6,8,11}, both variants) and on `wikitext.full` (threads {2,5,11}).
+- **Phase-1 scaling, tinystories.1G** (serial 9.58 s; one run each, not yet the bench methodology):
+  | threads | 1 | 2 | 3 | 4 | 5 | 6 | 8 | 11 |
+  |---|---|---|---|---|---|---|---|---|
+  | bucketed (s) | 9.42 | 4.70 | 3.23 | 2.42 | 2.19 | 1.94 | 1.67 | 1.37 |
+  | speedup vs serial | 1.02 | 2.04 | 2.97 | 3.96 | 4.37 | 4.94 | 5.75 | 7.01 |
+
+  Bucketed and critical are within noise here (only 45k unique words). On `wikitext.full` (540 MB, 599k unique words):
+  serial 5.42 s; 11 threads bucketed 1.05 s vs critical 1.34 s; 5 threads 1.47 s vs 1.52 s.
+- Full pipeline, tinystories.1G, 11 threads, `--pretok omp`, vocab 1000: total 2.19 s, of which **chunk 0.75 s** (serial
+  mmap + UTF-8 check + special-token split) and pretok 1.42 s. Chunking is now the Amdahl bottleneck: a G1 item.
+- **TSan:** CI job `tsan` (clang + libomp-dev, Archer via `OMP_TOOL_LIBRARIES`, `ctest -LE slow`, `OMP_NUM_THREADS=4`)
+  is written but **has never run** (no remote). Locally, Apple clang's TSan fails at startup ("Interceptors are not
+  working", also with `DYLD_INSERT_LIBRARIES`), same toolchain problem as ASan.
+
+**Next task:** N8 (profiling spike), then N7 (bench harness), then G1 (profiling gate: a user decision on S6 effort).
 
 ## What exists
 | Path | What it is |
@@ -102,10 +129,10 @@ containing `z`, so only those are appended to the index.
 | `include/parabpe/merge_engine.hpp` | `MergeEngine` interface, `build_word_table`, `make_merge_engine` |
 | `include/parabpe/io.hpp` + `src/io.cpp` | `bytes_to_unicode`, `build_vocab`, writers (all stubs, S2) |
 | `src/strategies.{hpp,cpp}` | Internal per-strategy constructors + factory dispatch |
-| `src/pretok_{serial,omp}.cpp`, `src/merge_{naive,incr}.cpp`, `src/word_table.cpp` | Strategy stubs |
+| `src/pretok_{serial,omp}.cpp`, `src/merge_{naive,incr}.cpp`, `src/word_table.cpp` | Strategies; NaivePar (S7) and IncrPar (S6) paths still throw |
 | `src/main.cpp` | CLI11 `train` / `encode` subcommands, wired to the full pipeline with phase timing |
 | `CMakeLists.txt` | Targets `parabpe_core` (lib), `parabpe` (CLI), `parabpe_tests` (gtest). Options `PARABPE_NATIVE/ASAN/TSAN` |
-| `.github/workflows/ci.yml` | GCC Release + ASan jobs on ubuntu. A TSan job is a TODO for S4 |
+| `.github/workflows/ci.yml` | GCC Release, ASan and TSan (clang + LLVM libomp) jobs on ubuntu |
 | `requirements.txt` | Python deps for the reference, bench and interop scripts |
 | `reference/` | `bpe_ref.py` (oracle), `make_golden.py`, `test_bpe_ref.py`, `README.md` (versions + byte formats) |
 | `tests/golden/` | 11 cases (`input.txt`, `case.txt`, `words.tsv`, `merges.txt`, `vocab.json`) + `unicode_classes.txt` |
@@ -125,7 +152,8 @@ containing `z`, so only those are appended to the index.
 - **OpenMP on macOS:** `CMakeLists.txt` asks `brew --prefix libomp` for the install location and sets `OpenMP_CXX_FLAGS`, so `find_package(OpenMP)`
   works with Apple clang. Don't remove that block.
 - PCRE2 is found with `find_path`/`find_library` plus Homebrew hints, because `pkg-config` is **not installed**.
-- Homebrew `llvm` is **not installed**. It is only needed for a local TSan run with LLVM's libomp: `brew install llvm`.
+- Homebrew `llvm` is **not installed**. Apple clang's TSan fails at startup on macOS 27 ("Interceptors are not
+  working"); `brew install llvm` might give working ASan/TSan runtimes (untried). Until then TSan is CI-only.
 - **ASan is broken on this Mac (2026-11-02):** Apple clang 17 (SDK 15.5) on macOS 27 deadlocks in the ASan runtime's own
   startup. Even a hello-world built with `-fsanitize=address` hangs, so `-DPARABPE_ASAN=ON` builds hang during test
   discovery. Xcode 16.4 is installed and active and has the same clang, so it doesn't help; an Xcode that supports
