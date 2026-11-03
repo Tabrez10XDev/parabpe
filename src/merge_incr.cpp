@@ -147,10 +147,78 @@ void count_parallel(const WordTable& t, std::vector<Owner>& owners, ShardedCount
   }
 }
 
-// S3 (serial) and S5 (parallel phase 2): inverted index + whole-word diff updates + lazy max-heap.
-// IncrPar's phase 3 still runs serially over the owners' private indexes.
-// TODO(S6): parallel phase 3 (persistent omp region, owners apply merges to their own words,
-// padded per-thread delta buffers, bucketed delta reduce, threshold on tokens touched).
+struct MergeStep {
+  uint32_t m;  // merge number, used as the last_touched stamp
+  PairKey pair;
+  TokenId a, b, z;
+};
+
+// Rewrites the owner's words that contain step.pair and reports the pair-count changes through
+// add(pair, delta). Whole-word diff: subtract every pair of the old word, add every pair of the new
+// one. z is a fresh id, so the pairs new to a word are exactly the ones that contain z; only those
+// are appended to the owner's index. Touches nothing outside this owner (its words, its index).
+template <class Add>
+void merge_owner(WordTable& table, Owner& owner, const MergeStep& s, Add&& add) {
+  const auto idx = owner.index.find(s.pair);
+  if (idx == owner.index.end()) return;
+  // Take the word list out first: inserting new pairs below may move the map's storage.
+  const std::vector<uint32_t> words = std::move(idx->second);
+  owner.index.erase(idx);
+  for (const uint32_t w : words) {
+    if (table.last_touched[w] == s.m) continue;
+    table.last_touched[w] = s.m;
+    TokenId* tok = table.tokens.data() + table.offset[w];
+    const uint32_t len = table.len[w];
+    if (!contains_pair(tok, len, s.a, s.b)) continue;
+    const auto f = static_cast<int64_t>(table.freq[w]);
+    for (uint32_t i = 0; i + 1 < len; ++i) add(make_pair_key(tok[i], tok[i + 1]), -f);
+    const uint32_t new_len = apply_merge(tok, len, s.a, s.b, s.z);
+    table.len[w] = new_len;
+    for (uint32_t i = 0; i + 1 < new_len; ++i) {
+      const PairKey k = make_pair_key(tok[i], tok[i + 1]);
+      add(k, f);
+      if (tok[i] == s.z || tok[i + 1] == s.z) index_word(owner.index[k], w);
+    }
+  }
+}
+
+// Upper bound on the tokens a merge step rewrites, cut off at `limit`: every listed word has at
+// least one token, so `limit` listed words already reach it without reading their lengths.
+size_t tokens_touched(const WordTable& table, const std::vector<Owner>& owners, PairKey pair,
+                      size_t limit) {
+  size_t words = 0;
+  for (const Owner& o : owners) {
+    const auto it = o.index.find(pair);
+    if (it != o.index.end()) words += it->second.size();
+  }
+  if (words >= limit) return words;
+  size_t tokens = 0;
+  for (const Owner& o : owners) {
+    const auto it = o.index.find(pair);
+    if (it == o.index.end()) continue;
+    for (const uint32_t w : it->second) tokens += table.len[w];
+  }
+  return tokens;
+}
+
+// Per-thread delta buffer (S6), pre-bucketed by counts shard; written in the hot loop, so padded.
+struct alignas(64) ThreadDelta {
+  std::vector<PairCounts> buckets;
+};
+// Per-shard output of the delta reduction.
+struct alignas(64) ShardDelta {
+  PairCounts sum;                // deltas of this shard summed over threads
+  std::vector<HeapEntry> push;   // pairs whose count changed and is still positive
+  std::vector<PairKey> zero;     // pairs whose count reached 0
+  bool negative = false;
+};
+
+// S3 (serial), S5 (parallel phase 2) and S6 (parallel phase 3): inverted index + whole-word diff
+// updates + lazy max-heap. In IncrPar the master runs the merge loop; a step that touches at least
+// cfg.par_threshold_tokens tokens opens a parallel region in which each owner merges its own words
+// into padded per-thread delta buffers, shard s then sums and applies its deltas, and owners drop
+// pairs that reached 0. Smaller steps run on the master alone, like IncrSerial. (A persistent region
+// would cost a barrier on every one of the ~30k merges, most of which touch a handful of words.)
 class IncrEngine final : public MergeEngine {
  public:
   explicit IncrEngine(bool parallel) : parallel_(parallel) {}
@@ -190,8 +258,15 @@ class IncrEngine final : public MergeEngine {
     const double t1 = omp_get_wtime();
     t.pairs = t1 - t0;
 
+    auto push = [&](uint64_t c, PairKey k) {
+      heap.push_back({c, k});
+      std::push_heap(heap.begin(), heap.end(), heap_less);
+    };
+
     // Phase 3.
-    PairCounts delta;
+    PairCounts delta;  // serial steps
+    std::vector<ThreadDelta> thread_delta(parallel_ ? cfg.threads : 0);
+    std::vector<ShardDelta> shard_delta(counts.n_shards());
     for (uint32_t m = 0; m < n_merges; ++m) {
       // Pop until the top is live: its count is the current (positive) count of its pair.
       PairKey best = 0;
@@ -209,60 +284,103 @@ class IncrEngine final : public MergeEngine {
       }
       if (!found) break;  // nothing left to merge
 
-      const TokenId a = pair_first(best), b = pair_second(best);
-      const TokenId z = static_cast<TokenId>(token_bytes.size());
+      const MergeStep step{m, best, pair_first(best), pair_second(best),
+                           static_cast<TokenId>(token_bytes.size())};
       // Before any push: the heap comparator reads the bytes of pairs that contain z.
-      token_bytes.push_back(token_bytes[a] + token_bytes[b]);
+      token_bytes.push_back(token_bytes[step.a] + token_bytes[step.b]);
 
-      // Whole-word diff: subtract every pair of the old word, add every pair of the new one.
-      // z is a fresh id, so the pairs new to a word are exactly the ones that contain z.
-      delta.clear();
-      for (Owner& owner : owners) {
-        const auto idx = owner.index.find(best);
-        if (idx == owner.index.end()) continue;
-        // Take the word list out first: inserting new pairs below may move the map's storage.
-        const std::vector<uint32_t> words = std::move(idx->second);
-        owner.index.erase(idx);
-        for (const uint32_t w : words) {
-          if (table.last_touched[w] == m) continue;
-          table.last_touched[w] = m;
-          TokenId* tok = table.tokens.data() + table.offset[w];
-          const uint32_t len = table.len[w];
-          if (!contains_pair(tok, len, a, b)) continue;
-          const auto f = static_cast<int64_t>(table.freq[w]);
-          for (uint32_t i = 0; i + 1 < len; ++i) delta[make_pair_key(tok[i], tok[i + 1])] -= f;
-          const uint32_t new_len = apply_merge(tok, len, a, b, z);
-          table.len[w] = new_len;
-          for (uint32_t i = 0; i + 1 < new_len; ++i) {
-            const PairKey k = make_pair_key(tok[i], tok[i + 1]);
-            delta[k] += f;
-            if (tok[i] == z || tok[i + 1] == z) index_word(owner.index[k], w);
-          }
+      const bool par_step = parallel_ && cfg.threads > 1 &&
+                            tokens_touched(table, owners, best, cfg.par_threshold_tokens) >=
+                                cfg.par_threshold_tokens;
+      if (par_step) {
+        parallel_step(table, owners, counts, step, thread_delta, shard_delta, cfg.threads);
+        for (const ShardDelta& sd : shard_delta) {
+          if (sd.negative) throw std::logic_error("IncrEngine: negative pair count");
+          for (const HeapEntry& e : sd.push) push(e.count, e.pair);
         }
-      }
-
-      for (const auto& [k, d] : delta) {
-        if (d == 0) continue;
-        const int64_t c = counts.add(k, d);
-        if (c > 0) {
-          heap.push_back({static_cast<uint64_t>(c), k});
-          std::push_heap(heap.begin(), heap.end(), heap_less);
-        } else if (c == 0) {
-          counts.erase(k);
-          for (Owner& owner : owners) owner.index.erase(k);  // no word holds the pair any more
-        } else {
-          throw std::logic_error("IncrEngine: negative pair count");
+      } else {
+        delta.clear();
+        for (Owner& owner : owners) {
+          merge_owner(table, owner, step, [&delta](PairKey k, int64_t d) { delta[k] += d; });
+        }
+        for (const auto& [k, d] : delta) {
+          if (d == 0) continue;
+          const int64_t c = counts.add(k, d);
+          if (c > 0) {
+            push(static_cast<uint64_t>(c), k);
+          } else if (c == 0) {
+            counts.erase(k);
+            for (Owner& owner : owners) owner.index.erase(k);  // no word holds the pair any more
+          } else {
+            throw std::logic_error("IncrEngine: negative pair count");
+          }
         }
       }
       if (heap.size() > 4 * counts.size()) rebuild_heap();
 
-      merges.push_back({a, b, z});
+      merges.push_back({step.a, step.b, step.z});
     }
     t.merge = omp_get_wtime() - t1;
     return merges;
   }
 
  private:
+  // One parallel merge step (S6). Owners only touch their own words and index; shard s of the
+  // counts is only written by the thread reducing shard s. Deltas are summed over all threads
+  // before they are applied, so a count never passes through a transient 0 or negative value.
+  static void parallel_step(WordTable& table, std::vector<Owner>& owners, ShardedCounts& counts,
+                            const MergeStep& step, std::vector<ThreadDelta>& thread_delta,
+                            std::vector<ShardDelta>& shard_delta, int threads) {
+    const int n_owners = static_cast<int>(owners.size());
+    const int n_shards = static_cast<int>(counts.n_shards());
+#pragma omp parallel num_threads(threads)
+    {
+      const int n_threads = omp_get_num_threads();
+      ThreadDelta& mine = thread_delta[omp_get_thread_num()];
+      mine.buckets.resize(n_shards);
+      for (PairCounts& b : mine.buckets) b.clear();
+
+#pragma omp for schedule(dynamic, 1)
+      for (int o = 0; o < n_owners; ++o) {
+        merge_owner(table, owners[o], step, [&mine, &counts](PairKey k, int64_t d) {
+          mine.buckets[counts.shard_of(k)][k] += d;
+        });
+      }  // implicit barrier: every delta is buffered
+
+#pragma omp for schedule(dynamic, 1)
+      for (int s = 0; s < n_shards; ++s) {
+        ShardDelta& sd = shard_delta[s];
+        sd.sum.clear();
+        sd.push.clear();
+        sd.zero.clear();
+        sd.negative = false;
+        for (int th = 0; th < n_threads; ++th) {
+          for (const auto& [k, d] : thread_delta[th].buckets[s]) sd.sum[k] += d;
+        }
+        PairCounts& shard = counts.shard(s);
+        for (const auto& [k, d] : sd.sum) {
+          if (d == 0) continue;
+          const int64_t c = (shard[k] += d);
+          if (c > 0) {
+            sd.push.push_back({static_cast<uint64_t>(c), k});
+          } else if (c == 0) {
+            shard.erase(k);
+            sd.zero.push_back(k);
+          } else {
+            sd.negative = true;  // reported by the master: no exceptions out of the region
+          }
+        }
+      }  // implicit barrier
+
+#pragma omp for schedule(dynamic, 1)
+      for (int o = 0; o < n_owners; ++o) {
+        for (const ShardDelta& sd : shard_delta) {
+          for (const PairKey k : sd.zero) owners[o].index.erase(k);
+        }
+      }
+    }
+  }
+
   bool parallel_;
 };
 

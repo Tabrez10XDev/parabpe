@@ -18,7 +18,7 @@ Work through the tasks in **pick-up order**. A task can start once everything in
 | 9 | G1 Profiling gate | ✅ (modest S6 + S10 chunking) | S3, S4 |
 | 10 | S5 Parallel PairStats | ✅ | S3 |
 | 11 | S7 NaivePar | ✅ | S2 |
-| 12 | S6 IncrPar | ⬜ | S5, G1 |
+| 12 | S6 IncrPar | ✅ (fork per large step, not a persistent region; see HANDOFF) | S5, G1 |
 | 12b | S10 Parallel chunker | ⬜ | S4, G1 |
 | 13 | S8 Full benchmarks (on the Mac, **mains power**) | ⬜ | S4–S7, S10, N7 |
 | 14 | S9 Report | ⬜ | S8 |

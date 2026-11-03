@@ -64,7 +64,7 @@ report/            LaTeX report
 | S3 | IncrSerial (baseline) | ✅ |
 | S4 | OMP pre-tokenizer | ✅ |
 | S5 | Parallel PairStats | ✅ |
-| S6 | IncrPar | ⬜ |
+| S6 | IncrPar | ✅ |
 | S7 | NaivePar | ✅ |
 | S8 | Benchmarks | ⬜ |
 | S9 | Report | ⬜ |

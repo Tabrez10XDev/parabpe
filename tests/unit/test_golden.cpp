@@ -37,6 +37,7 @@ TEST(Golden, MergesAndVocabMatchReference) {
         cfg.special_tokens = gc.specials;
         cfg.merge = engine;
         cfg.threads = threads;
+        cfg.par_threshold_tokens = 0;  // IncrPar: every merge step takes the parallel path
         const std::string text = test::read_file(gc.dir / "input.txt");
         const TrainResult r = train_text(text, cfg);
         EXPECT_EQ(format_merges(r.merges, r.vocab), test::read_file(gc.dir / "merges.txt"));

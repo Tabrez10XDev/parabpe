@@ -3,7 +3,7 @@
 ## Current state (2026-11-03)
 **Done:** N1 (repo skeleton), N2 (draft spec and interfaces), **N4 (Python reference + golden files)**, **N3 (data)**, **S1 (chunker + serial pre-tokenizer)** and **S2 (WordTable + NaiveSerial +
 writers + `train()`)** **S3 (IncrSerial + equivalence harness)** and **S4 (OMP pre-tokenizer + TSan CI job)**. Training works end to end
-with `--pretok serial|omp --merge naive-serial|incr-serial`; NaivePar (S7) works. IncrPar works with a parallel phase 2 (S5) and a serial phase 3 (S6 is next).
+with `--pretok serial|omp --merge naive-serial|incr-serial`; All four engines work: IncrPar has a parallel phase 2 (S5) and phase 3 (S6).
 
 **N4 + Unicode pin (2026-10-31).** The plan for N4 → N3 → S1 was checked by an independent reviewer; its changes are
 folded into the S1/S2 cards in `docs/TASKS.md`.
@@ -193,7 +193,41 @@ is applied with `parallel for` over words (each word is a disjoint range of `tok
 **G1 (2026-11-03).** The numbers and the decision are in `docs/notes/profiling.md`. The user chose a **modest S6**
 (as planned, reported honestly) plus a new task, **S10 (parallel chunker)**; its card is in TASKS.
 
-**Next task:** S6 (IncrPar phase 3), then S10. S8 needs the Mac on mains power. It needs IncrSerial phase breakdowns on 100 MB / 1 GB (mostly in
+**S6 (2026-11-03).** IncrPar phase 3, in `src/merge_incr.cpp`:
+- The master pops the heap and runs the loop. A step whose **tokens touched** reach `cfg.par_threshold_tokens`
+  (checked by counting listed words first, then summing their lengths) opens a parallel region with three steps:
+  1. `omp for` over owners: `merge_owner` rewrites the owner's words and buffers deltas in a padded per-thread map,
+     bucketed by counts shard.
+  2. `omp for` over shards: sum the deltas over all threads **before** applying them, so a count never passes through
+     a transient 0. Then apply them and collect heap pushes and zeros.
+  3. `omp for` over owners: drop the zero pairs from each index.
+
+  The master then pushes to the heap. Smaller steps run on the master alone, through the same `merge_owner` code
+  path. Negative counts are flagged inside the region and thrown by the master.
+- **Deviation from the card:** I used no persistent region. With about 31k merges, most touching a few words, a
+  barrier on every merge would cost more than it saves; forking only for big steps costs nothing on small ones.
+  Mention this in the report.
+- Tests: the golden and random-corpus tests run IncrPar with threshold 0, so every step is parallel; the random test
+  also uses threshold 8, a mix of both paths. A mutation (dropping thread 0's deltas) fails both tests.
+  56/56 pass (Release and Debug).
+- Equivalence matrix: 0 mismatches on `tinystories.10M`, with every strategy implemented.
+- `wikitext.full`, vocab 32000, phase 3 (one run each, **on battery**, indicative only). `merges.txt` was identical
+  in every run.
+
+  | | 5 threads | 11 threads |
+  |---|---|---|
+  | IncrSerial | 0.675 s | 0.675 s |
+  | IncrPar, threshold 0 (every step parallel) | 2.28 s | 5.13 s |
+  | IncrPar, threshold 1024 | 0.62 s | 0.84 s |
+  | IncrPar, threshold 4096 (default) | **0.594 s (1.14×)** | 0.698 s |
+  | IncrPar, threshold 16384 | 0.63 s | 0.653 s (1.03×) |
+  | IncrPar, threshold 65536 | 0.68 s | 0.667 s |
+
+  This is a modest result, as G1 expected: S6 wins back S5's per-owner cost and gains about 1.1× at 5 threads.
+  At 11 threads, the E-cores and the extra owner lookups on every serial step cancel the gain. `threshold.yaml`
+  sweeps this properly in S8.
+
+**Next task:** S10 (parallel chunker). S8 needs the Mac on mains power. It needs IncrSerial phase breakdowns on 100 MB / 1 GB (mostly in
 `docs/notes/profiling.md` already) and a **user decision** on how much effort S6 gets. S5 and S7 are unblocked and
 don't depend on G1.
 
