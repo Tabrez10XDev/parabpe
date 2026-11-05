@@ -189,6 +189,36 @@ time tracks unique words, not corpus bytes (0.68 s at 540 MB, 0.73 s at 3.2 GB);
 IncrSerial phase 3 is 0.94 s and IncrPar 0.84 s, and phase 3 is about 37% of wall time. The estimate for phase 3 at 5
 threads is about 1.8–2.2×, up from 1.14×. **That is an estimate, not a measurement.**
 
+## Parallel rounds (B4)
+
+Phase 3 on `wikitext.full`, median of 3, interleaved with IncrSerial, **on battery, with two stale ASan processes using
+about 90% of a core in the background: indicative only, not the kill check.** `merges.txt` matched IncrSerial every time.
+
+| threads, owners/thread, threshold | v32k | v100k |
+|---|---:|---:|
+| IncrSerial | 0.689 s | 1.019 s |
+| IncrPar, 5 threads | 0.574 s (1.20×) | 0.896 s (1.14×) |
+| incr-batch, 5, 1, 1024 | **0.383 s (1.80×)** | **0.722 s (1.41×)** |
+| incr-batch, 5, 2, 1024 | 0.398 s (1.73×) | 0.792 s (1.29×) |
+| incr-batch, 5, 4, 1024 | 0.425 s (1.62×) | 0.802 s (1.27×) |
+| incr-batch, 11, 1, 1024 | 0.478 s (1.44×) | 0.897 s (1.14×) |
+
+- Before the small-round skip, v100k at 5 threads was 0.79×: selection took 0.78 s and only 966 of 21,295 rounds went
+  parallel.
+- **Small-round skip (`batch_skip_small`, default on).** One merge is always exact, so a batch is only worth its selection
+  cost if it can go parallel. A round is cut to one merge if its prefix can't reach `par_threshold_tokens`, or its best pair
+  has under 1/8 of it. At 1 thread every round is one merge.
+- **This separates two figures.** Skipping raises the reported rounds: on `wikitext.full` v32k, 19,888 at the default
+  threshold against 2,561 with `--batch-full-rounds`. The span figures in this note are full-rounds figures. Don't quote a
+  round count and a speedup from different modes. With full rounds and no skip, v32k measured 1.69× (5 threads, 1 owner per
+  thread, threshold 4096).
+- `owners_per_thread=1` beat 4 in every run here, including at 11 threads. Serial rounds pay one index lookup per owner per
+  member. The default stays 4 until the mains sweep.
+- `tinystories.1G` v32k stays below break-even: 0.93× at 5 threads (0.059 s against 0.055 s). Ties keep batches small there,
+  and phase 3 is about 3% of the run.
+- The `last_touched` stamp is not needed for correctness in this engine: a rewritten word holds no member any more, so a
+  second visit changes nothing. It only saves a rescan. The mutation that removes it survives for that reason.
+
 ## Design decisions
 
 - **Keep the lazy max-heap**, not `std::set`: order updates run serially on the master, and that is the Amdahl term.

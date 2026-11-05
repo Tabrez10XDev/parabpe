@@ -24,7 +24,7 @@ Work through the tasks in **pick-up order**. A task can start once everything in
 | 14 | B1 Pure refactor into `src/incr_common.hpp` | ✅ | B0 |
 | 15 | B2 `incr-batch` plumbing | ✅ | B1 |
 | 16 | B3 Serial batched engine + verifier + tests | ✅ | B2 |
-| 17 | B4 Hashed owners + parallel rounds (**mains power** for the kill check) | ⬜ | B3 |
+| 17 | B4 Hashed owners + parallel rounds (**mains power** for the kill check) | 🟨 code done; kill check and default sweep need mains | B3 |
 | 18 | B5 IncrPar owner-map ablation | ⬜ | B4 |
 | 19 | N6 Related-work notes | ⬜ | — |
 | 20 | S8 Full benchmarks (on the Mac, **mains power**) | ⬜ | S4–S7, S10, N7, B5 |

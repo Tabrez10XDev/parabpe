@@ -37,7 +37,9 @@ Sanitizer builds: `-DPARABPE_ASAN=ON`, or `-DPARABPE_TSAN=ON` (use clang with LL
 |---|---|
 | `--pretok` | `serial`, `omp` |
 | `--merge` | `naive-serial`, `incr-serial`, `naive-par`, `incr-par`, `incr-batch` |
-| `--par-threshold-tokens` | IncrPar: minimum tokens touched in a merge before the work is split across threads |
+| `--par-threshold-tokens` | IncrPar, incr-batch: minimum tokens touched in a step before the work is split across threads |
+| `--verify-batches` | incr-batch: check every member against a sequential oracle |
+| `--batch-full-rounds` | incr-batch: batch every round, even ones too small to go parallel (the span figures) |
 
 ## Layout
 
@@ -71,7 +73,8 @@ report/            LaTeX report
 | B1 | Refactor: `src/incr_common.hpp` | ✅ |
 | B2 | `incr-batch` plumbing | ✅ |
 | B3 | `incr-batch` serial engine + `--verify-batches` | ✅ |
-| B4–B5 | Hashed owners, parallel rounds | ⬜ |
+| B4 | Hashed owners, parallel rounds | 🟨 kill check pending (mains power) |
+| B5 | Owner-map ablation | ⬜ |
 | N6 | Related work | ⬜ |
 | S8 | Benchmarks | ⬜ |
 | B6–B7 | Trace, ParaBPE Studio | ⬜ |

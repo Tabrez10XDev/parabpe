@@ -291,7 +291,23 @@ random-corpus list (oracle on) and `run_matrix.py`.
   kill check at v100k.
 - CI: B0, B1 and B2 runs are fully green, TSan included, so the existing parallel code has now been race-checked.
 
-**Next task:** B4 (hashed owners + parallel rounds). B4's kill check and S8 **need the Mac on mains power and
+**B4 (in progress, 2026-11-05).** The code is done; the kill check and the default sweep need mains power.
+- `partition_words_hashed` (`Owner::words`), rounds at or above `par_threshold_tokens` through the templated
+  `parallel_step`, and a periodic parallel sweep of zero pairs (every 16k pairs). IncrSerial and IncrPar keep their paths.
+- **Added beyond the card: `batch_skip_small`** (default on; `--batch-full-rounds` turns it off). Rounds that can't go
+  parallel merge one pair. It took v100k from 0.79× to 1.41×. Span figures must come from `--batch-full-rounds` runs, which
+  are the ones that match batchsim. Details and battery numbers are in `docs/notes/batched_merging.md`.
+- 81/81 in Release and Debug. CI green, TSan included: **the first race check of parallel rounds.** Matrix 0 mismatches on
+  both 10 MB slices.
+- `--verify-batches` passes at 5 and 11 threads at v32k and v100k, with and without skipping; `merges.txt` equals IncrSerial
+  in all eight runs.
+- Mutations: 16 of 17 caught. The survivor (no per-round stamp) is an equivalent mutant, explained in the note.
+- **Two stale `build-asan/parabpe_tests --gtest_list_tests` processes** have been spinning since 2026-11-02 at about 45% of
+  a core each (the ASan deadlock). Kill them before any benchmark. All battery timings so far ran alongside them.
+- The Mac slept during a foreground test run even in the middle of a session. Wrap long runs in `caffeinate -i`.
+
+**Next task:** finish B4 on mains power: `owners_per_thread` {1,2,4} and threshold {1k,4k,16k,64k} sweep, then the kill check.
+Then B5. B4's kill check and S8 **need the Mac on mains power and
 awake**: `.venv/bin/python -I bench/run_bench.py bench/configs/<name>.yaml --require-ac`, then
 `bench/plot.py results/*.csv --out-dir results/plots`.
 
