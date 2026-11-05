@@ -153,9 +153,15 @@ to IncrSerial's `merges.txt` on `wikitext.10M` v4000. Every run below had 0 viol
 
 - The relaxed column reproduces the feasibility prototype's six figures exactly. The prototype's source was not kept.
 - On `wikitext.full` v32k: strict needs 8,814 rounds, relaxed 3,409, closed form 2,561.
-- **The cap matters where ties are large.** At the planned default of 256, `wikitext.full` v100k takes 35,237 rounds
-  against 21,295 uncapped, which is worse than the relaxed rule without a cap. A cap of 1024 gives 21,646. The cap never
-  affects exactness; it trades selection time for batch size. B3 measures that cost and settles the default.
+- **The cap matters where ties are large.** At the first planned default of 256, `wikitext.full` v100k takes 35,237
+  rounds against 21,295 uncapped, which is worse than the relaxed rule without a cap. A cap of 1024 gives 21,646. The cap
+  never affects exactness. B3 set the default to **4096**, which matches the uncapped rounds on both `wikitext.full`
+  configurations (`tinystories.100M`: 14,561 against 14,487).
+- **The tie scan stops early.** Growing T only lowers j, so k only shrinks, and never below max(g,1). Once k reaches that
+  floor, the rest of T cannot change the answer. The batch is identical to a full scan.
+- **Selection is the serial cost to watch.** Serial phase 3, oracle off, best of 3, on battery (indicative):
+  `tinystories.1G` about 0.26 s against IncrSerial's 0.05 s; `wikitext.full` v100k about 1.5 s against 0.95 s;
+  `wikitext.full` v32k about the same as IncrSerial (0.62–0.73 s against 0.74 s).
 
 **Span and load, `wikitext.full`, v32k:**
 
@@ -202,7 +208,7 @@ threads is about 1.8–2.2×, up from 1.14×. **That is an estimate, not a measu
 | risk | what happens then |
 |---|---|
 | Fork/join and serial order updates eat the gain | B4's kill check: < 1.3× at 5 threads at both vocabs stops the optimising; ship the theorem, the span reduction and the imbalance fix |
-| Selection cost on large tie groups | `select_s` is logged per run; `batch_scan_cap` bounds it |
+| Selection cost on large tie groups | `select_s` is logged per run; `batch_scan_cap` bounds it. It is 0.74–0.88 s at v100k, so parallel rounds must win that back; rounds too small to go parallel could skip the scan and take k=1, which is always exact |
 | Mid-size words dominate rounds below the threshold | Those stay serial; `parallel_rounds` shows how many went parallel |
 | Exactness bug that large corpora don't expose | Constructed corpora, small-alphabet random tests, mutation checks (see the warning above) |
 | TSan was not checking anything | Its first CI run stopped at false positives inside libomp; fixed in B0 with `ignore_noninstrumented_modules=1` |

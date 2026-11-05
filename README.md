@@ -70,7 +70,8 @@ report/            LaTeX report
 | B0 | Batched merging: proof, `tools/batchsim` | ✅ |
 | B1 | Refactor: `src/incr_common.hpp` | ✅ |
 | B2 | `incr-batch` plumbing | ✅ |
-| B3–B5 | `incr-batch` engine, hashed owners, parallel rounds | ⬜ |
+| B3 | `incr-batch` serial engine + `--verify-batches` | ✅ |
+| B4–B5 | Hashed owners, parallel rounds | ⬜ |
 | N6 | Related work | ⬜ |
 | S8 | Benchmarks | ⬜ |
 | B6–B7 | Trace, ParaBPE Studio | ⬜ |

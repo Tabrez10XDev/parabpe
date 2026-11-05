@@ -275,7 +275,23 @@ IncrSerial 0.704 vs 0.691 s, IncrPar at 5 threads 0.588 vs 0.585 s; `merges.txt`
 `timings.json` for incr-batch only (additive, like `pretok_reduce`; the SPEC §6 example is unchanged). `--trace` is
 accepted but does nothing until B6.
 
-**Next task:** B3 (serial batched engine, verifier, tests). B4's kill check and S8 **need the Mac on mains power and
+**B3 (2026-11-05).** `src/merge_batch.cpp` (engine, lazy-heap `select_round`, `SequentialOracle` for `--verify-batches`)
+and `src/batch_select.hpp` (pure `choose_batch`, `keep_count`, `Batch`, `apply_batch`). The engine is still serial: one
+owner, threads ignored. `tests/unit/test_batch.cpp` is new; `incr-batch` is in the golden test, the `Engines` suite, the
+random-corpus list (oracle on) and `run_matrix.py`.
+- 77/77 in Release and Debug. Matrix 0 mismatches on both 10 MB slices with `incr-batch` included.
+- Engine vs batchsim, oracle on: **0 disagreements** on rounds, max batch and `merges.txt` over 8 configurations, including
+  `wikitext.full` v32k (**2,561 rounds**, target ≤ 3,409) and v100k (21,295).
+- All three rules are exact on 200 random corpora (`make_batch_engine(BatchRule)`; only Closed ships).
+- **Mutations, all caught:** always k=K; 1-based j; self-pair mid-batch; `<=` in g; stopping pair left out of T; incomplete
+  scan treated as complete; tie scan skipped; bytes pushed after the heap push (Debug trap, like the S3 bug).
+- **Deviations from the card:** `batch_scan_cap` defaults to **4096**, not 256, because of the round counts above. The tie
+  scan stops early once k reaches max(g,1), which cuts selection time and returns the same batch.
+- **Serial cost:** selection dominates on tie-heavy data. See the note's measurements. This is the main risk for B4's
+  kill check at v100k.
+- CI: B0, B1 and B2 runs are fully green, TSan included, so the existing parallel code has now been race-checked.
+
+**Next task:** B4 (hashed owners + parallel rounds). B4's kill check and S8 **need the Mac on mains power and
 awake**: `.venv/bin/python -I bench/run_bench.py bench/configs/<name>.yaml --require-ac`, then
 `bench/plot.py results/*.csv --out-dir results/plots`.
 

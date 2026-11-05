@@ -23,7 +23,7 @@ Work through the tasks in **pick-up order**. A task can start once everything in
 | 13 | B0 Batched merging: plan, proof, `tools/batchsim` | ✅ | S6 |
 | 14 | B1 Pure refactor into `src/incr_common.hpp` | ✅ | B0 |
 | 15 | B2 `incr-batch` plumbing | ✅ | B1 |
-| 16 | B3 Serial batched engine + verifier + tests | ⬜ | B2 |
+| 16 | B3 Serial batched engine + verifier + tests | ✅ | B2 |
 | 17 | B4 Hashed owners + parallel rounds (**mains power** for the kill check) | ⬜ | B3 |
 | 18 | B5 IncrPar owner-map ablation | ⬜ | B4 |
 | 19 | N6 Related-work notes | ⬜ | — |
@@ -296,7 +296,7 @@ Files: `src/merge_batch.cpp`, `src/batch_select.hpp`, `tests/unit/test_batch.cpp
 - Mutations that must fail: always k=K; self-pair mid-batch; `<=` in g; bytes push after heap push; 1-based j; the
   stopping pair left out of T.
 - Settle the `batch_scan_cap` default by measuring: at 256, `wikitext.full` v100k takes 35,237 rounds against 21,295
-  uncapped.
+  uncapped. **Settled: 4096.**
 
 Acceptance: identical everywhere; `--verify-batches` passes on both 10 MB slices and `wikitext.full` v32k; rounds ≤ 3,409
 there (the closed form predicts 2,561), cross-checked with batchsim; changed pairs and select/order time logged.
