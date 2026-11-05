@@ -194,6 +194,7 @@ TEST(Engines, MatchNaiveOnRandomCorpora) {
       cfg.par_threshold_tokens =
           trial % 2 ? 0 : 8;  // IncrPar: all-parallel, or a mix of both paths
       cfg.verify_batches = true;
+      cfg.batch_skip_small = false;
       const TrainResult other = train_text(text, cfg);
       ASSERT_EQ(other.merges, naive.merges)
           << "engine " << static_cast<int>(engine) << " threads " << threads << " trial " << trial

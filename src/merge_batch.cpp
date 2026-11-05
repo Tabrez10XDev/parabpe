@@ -45,6 +45,28 @@ void merge_owner_batch(WordTable& table, Owner& owner, const Batch& batch, Add&&
   }
 }
 
+// Does the round rewrite at least `threshold` tokens? Stops counting as soon as it knows.
+bool reaches_threshold(const WordTable& table, const std::vector<Owner>& owners,
+                       std::span<const Cand> members, size_t threshold) {
+  size_t tokens = 0;
+  for (const Cand& member : members) {
+    if (tokens >= threshold) break;
+    tokens += tokens_touched(table, owners, member.pair, threshold - tokens);
+  }
+  return tokens >= threshold;
+}
+
+// Drops pairs that reached 0 from every owner. Deferred, because each pair costs one lookup per
+// owner. A pair at 0 stays at 0 (batched_merging.md), so its stale index entries are never read.
+void sweep_zero_pairs(std::vector<Owner>& owners, std::vector<PairKey>& zero, int threads) {
+  const int n_owners = static_cast<int>(owners.size());
+#pragma omp parallel for schedule(dynamic, 1) num_threads(threads)
+  for (int o = 0; o < n_owners; ++o) {
+    for (const PairKey k : zero) owners[o].index.erase(k);
+  }
+  zero.clear();
+}
+
 // Lazy max-heap in SPEC.md §4 order over the pairs in `counts`.
 class PairHeap {
  public:
@@ -150,7 +172,9 @@ class SequentialOracle {
 };
 
 // Batched merge rounds (docs/notes/batched_merging.md): each round takes a prefix of the best-first
-// order that is proven identical to the next k sequential merges, and applies it in one step.
+// order that is proven identical to the next k sequential merges, and applies it in one step. The
+// master selects and updates the order. A round that rewrites at least cfg.par_threshold_tokens
+// tokens runs on hashed owners in a parallel region (B4); smaller rounds run on the master alone.
 class BatchEngine final : public MergeEngine {
  public:
   explicit BatchEngine(BatchRule rule) : rule_(rule) {}
@@ -164,10 +188,17 @@ class BatchEngine final : public MergeEngine {
 
     // Phase 2.
     const double t0 = omp_get_wtime();
-    std::vector<Owner> owners = partition_words(table, 1);
+    const bool par = cfg.threads > 1;
+    std::vector<Owner> owners;
     ShardedCounts counts;
-    counts.reset(1);
-    count_serial(table, owners[0], counts);
+    if (par) {
+      owners = partition_words_hashed(table, cfg.owners_per_thread * cfg.threads);
+      count_parallel(table, owners, counts, cfg.threads);
+    } else {
+      owners = partition_words(table, 1);
+      counts.reset(1);
+      count_serial(table, owners[0], counts);
+    }
     PairHeap heap(counts, token_bytes_);
     heap.rebuild();
     const double t1 = omp_get_wtime();
@@ -180,10 +211,21 @@ class BatchEngine final : public MergeEngine {
     tok_mark_.assign(token_bytes_.size(), 0);
     tok_slot_.assign(token_bytes_.size(), 0);
     Batch batch;
-    PairCounts delta;
+    PairCounts delta;  // serial rounds
+    std::vector<ThreadDelta> thread_delta(par ? cfg.threads : 0);
+    std::vector<ShardDelta> shard_delta(counts.n_shards());
+    std::vector<PairKey> zero;  // pairs at 0 still in the owners' indexes
     for (uint32_t round = 0; merges.size() < n_merges; ++round) {
       const double t_select = omp_get_wtime();
-      const size_t k = select_round(heap, n_merges - merges.size(), cfg.batch_scan_cap);
+      // One merge is always exact, so a batch is only worth its selection cost if it can go
+      // parallel. Without threads, no round can.
+      const auto worth_batching = [&](std::span<const Cand> members, size_t share) {
+        return !cfg.batch_skip_small ||
+               reaches_threshold(table, owners, members, cfg.par_threshold_tokens / share);
+      };
+      const size_t left = n_merges - merges.size();
+      const size_t budget = cfg.batch_skip_small && !par ? 1 : left;
+      const size_t k = select_round(heap, budget, cfg.batch_scan_cap, worth_batching);
       stats_.select_s += omp_get_wtime() - t_select;
       if (k == 0) break;  // nothing left to merge
       record_round(k);
@@ -201,26 +243,43 @@ class BatchEngine final : public MergeEngine {
       tok_slot_.resize(token_bytes_.size(), 0);
       batch.assign(std::span(prefix_).first(k), z_first, token_bytes_.size(), round);
 
-      delta.clear();
-      merge_owner_batch(table, owners[0], batch,
-                        [&delta](PairKey key, int64_t d) { delta[key] += d; });
-
-      const double t_order = omp_get_wtime();
-      for (const auto& [key, d] : delta) {
-        if (d == 0) continue;
-        ++stats_.changed_pairs;
-        const int64_t c = counts.add(key, d);
-        if (c > 0) {
-          heap.push(static_cast<uint64_t>(c), key);
-        } else if (c == 0) {
-          counts.erase(key);
-          owners[0].index.erase(key);  // no word holds the pair any more
-        } else {
-          throw std::logic_error("BatchEngine: negative pair count");
+      double t_order = 0;
+      if (par &&
+          reaches_threshold(table, owners, std::span(prefix_).first(k), cfg.par_threshold_tokens)) {
+        ++stats_.parallel_rounds;
+        parallel_step(
+            table, owners, counts,
+            [&batch](WordTable& tb, Owner& o, auto&& add) { merge_owner_batch(tb, o, batch, add); },
+            thread_delta, shard_delta, cfg.threads, /*erase_zero_pairs=*/false);
+        t_order = omp_get_wtime();
+        for (const ShardDelta& sd : shard_delta) {
+          if (sd.negative) throw std::logic_error("BatchEngine: negative pair count");
+          stats_.changed_pairs += sd.push.size() + sd.zero.size();
+          for (const HeapEntry& e : sd.push) heap.push(e.count, e.pair);
+          zero.insert(zero.end(), sd.zero.begin(), sd.zero.end());
+        }
+      } else {
+        delta.clear();
+        const auto add = [&delta](PairKey key, int64_t d) { delta[key] += d; };
+        for (Owner& owner : owners) merge_owner_batch(table, owner, batch, add);
+        t_order = omp_get_wtime();
+        for (const auto& [key, d] : delta) {
+          if (d == 0) continue;
+          ++stats_.changed_pairs;
+          const int64_t c = counts.add(key, d);
+          if (c > 0) {
+            heap.push(static_cast<uint64_t>(c), key);
+          } else if (c == 0) {
+            counts.erase(key);
+            zero.push_back(key);
+          } else {
+            throw std::logic_error("BatchEngine: negative pair count");
+          }
         }
       }
       if (heap.size() > 4 * counts.size()) heap.rebuild();
       stats_.order_s += omp_get_wtime() - t_order;
+      if (zero.size() >= kZeroSweepPairs) sweep_zero_pairs(owners, zero, cfg.threads);
     }
     if (oracle && merges.size() < n_merges) check_exhausted(*oracle);
     t.merge = omp_get_wtime() - t1;
@@ -230,9 +289,15 @@ class BatchEngine final : public MergeEngine {
   MergeStats stats() const override { return stats_; }
 
  private:
+  static constexpr size_t kZeroSweepPairs = 1 << 14;
+  // A round is cut to one merge at once if its best pair has under 1/share of the threshold: only
+  // the merge rate suffers on the borderline, because one merge is always exact.
+  static constexpr size_t kFirstMemberShare = 8;
+
   // Picks this round's members into prefix_[0..k) and returns k (0: no live pair left). Every
   // other popped entry goes back on the heap before anything is applied.
-  size_t select_round(PairHeap& heap, size_t budget, size_t scan_cap) {
+  template <class Worth>
+  size_t select_round(PairHeap& heap, size_t budget, size_t scan_cap, Worth&& worth_batching) {
     prefix_.clear();
     tail_.clear();
     const uint32_t prefix_stamp = ++stamp_, tail_stamp = ++stamp_;
@@ -258,6 +323,11 @@ class BatchEngine final : public MergeEngine {
       }
       tok_slot_[a] = tok_slot_[b] = static_cast<uint32_t>(prefix_.size());
       prefix_.push_back(c);
+      if (prefix_.size() == 1 && budget > 1 &&
+          !worth_batching(std::span<const Cand>(prefix_), kFirstMemberShare)) {
+        ++stats_.small_rounds;
+        return 1;  // not worth popping the rest of a prefix
+      }
       tok_mark_[a] = tok_mark_[b] = prefix_stamp;
       if (a == b) {
         stop = BatchStop::Self;
@@ -268,6 +338,12 @@ class BatchEngine final : public MergeEngine {
 
     // The tie group T, starting with the entry that stopped the prefix.
     const size_t K = prefix_.size();
+    if (K > 1 && !worth_batching(std::span<const Cand>(prefix_), 1)) {
+      ++stats_.small_rounds;
+      if (have) heap.push(c.count, c.pair);
+      for (size_t i = 1; i < K; ++i) heap.push(prefix_[i].count, prefix_[i].pair);
+      return 1;
+    }
     const uint64_t c_star = prefix_.back().count;
     size_t g = 0;
     for (const Cand& m : prefix_) g += m.count > c_star;

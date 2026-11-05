@@ -41,6 +41,7 @@ TEST(Golden, MergesAndVocabMatchReference) {
         cfg.threads = threads;
         cfg.par_threshold_tokens = 0;  // IncrPar: every merge step takes the parallel path
         cfg.verify_batches = true;     // IncrBatch: every member against the sequential oracle
+        cfg.batch_skip_small = false;  // IncrBatch: batch at every thread count, 1 included
         const std::string text = test::read_file(gc.dir / "input.txt");
         const TrainResult r = train_text(text, cfg);
         EXPECT_EQ(format_merges(r.merges, r.vocab), test::read_file(gc.dir / "merges.txt"));

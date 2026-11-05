@@ -71,11 +71,22 @@ class ShardedCounts {
   ankerl::unordered_dense::hash<PairKey> hash_;
 };
 
-// A contiguous range of words and its private inverted index (S5). IncrSerial has one owner;
-// IncrPar has one per thread, balanced by token count.
+// A set of words and its private inverted index (S5). IncrSerial has one owner; IncrPar has one per
+// thread, each a contiguous range balanced by token count; IncrBatch has hashed owners (B4), whose
+// words are listed in increasing order instead of being a range.
 struct alignas(64) Owner {
   uint32_t begin = 0, end = 0;
+  std::vector<uint32_t> words;  // hashed owners only
   PairIndex index;
+
+  template <class F>
+  void for_each_word(F&& f) const {
+    if (words.empty()) {
+      for (uint32_t w = begin; w < end; ++w) f(w);
+    } else {
+      for (const uint32_t w : words) f(w);
+    }
+  }
 };
 
 struct alignas(64) LocalCounts {
@@ -94,6 +105,23 @@ inline std::vector<Owner> partition_words(const WordTable& t, size_t n) {
     while (w < t.size() && (seen < target || o + 1 == n)) seen += t.len[w++];
     owners[o].end = w;
   }
+  return owners;
+}
+
+inline uint64_t mix64(uint64_t x) {  // splitmix64 finalizer
+  x ^= x >> 30;
+  x *= 0xbf58476d1ce4e5b9ULL;
+  x ^= x >> 27;
+  x *= 0x94d049bb133111ebULL;
+  return x ^ (x >> 31);
+}
+
+// Splits the words into n owners by a hash of their block of 16 neighbours. The word table is
+// sorted by bytes, so contiguous owners cluster the words of a pair in one owner (B0 measured
+// busiest/mean 2.30 at 5 threads against 1.08 here); a whole block stays together for locality.
+inline std::vector<Owner> partition_words_hashed(const WordTable& t, size_t n) {
+  std::vector<Owner> owners(n);
+  for (uint32_t w = 0; w < t.size(); ++w) owners[mix64(w >> 4) % n].words.push_back(w);
   return owners;
 }
 
@@ -128,14 +156,14 @@ inline void count_parallel(const WordTable& t, std::vector<Owner>& owners, Shard
 #pragma omp for schedule(dynamic, 1)
     for (int o = 0; o < n_owners; ++o) {
       Owner& owner = owners[o];
-      for (uint32_t w = owner.begin; w < owner.end; ++w) {
+      owner.for_each_word([&](uint32_t w) {
         const TokenId* tok = t.tokens.data() + t.offset[w];
         for (uint32_t i = 0; i + 1 < t.len[w]; ++i) {
           const PairKey k = make_pair_key(tok[i], tok[i + 1]);
           mine.buckets[counts.shard_of(k)][k] += static_cast<int64_t>(t.freq[w]);
           index_word(owner.index[k], w);
         }
-      }
+      });
     }  // implicit barrier: every local map is complete
 
     const int n_shards = static_cast<int>(counts.n_shards());
@@ -216,13 +244,16 @@ struct alignas(64) ShardDelta {
 };
 
 // One parallel step (S6). merge(table, owner, add) rewrites one owner's words and reports its
-// pair-count changes through add(pair, delta). Owners only touch their own words and index; shard s
-// of the counts is only written by the thread reducing shard s. Deltas are summed over all threads
-// before they are applied, so a count never passes through a transient 0 or negative value.
+// pair-count changes through add(pair, delta). With erase_zero_pairs off, pairs that reached 0
+// stay in the owners' indexes and the caller takes them from shard_delta[s].zero. Owners only touch
+// their own words and index; shard s of the counts is only written by the thread reducing shard s.
+// Deltas are summed over all threads before they are applied, so a count never passes through a
+// transient 0 or negative value.
 template <class MergeFn>
 void parallel_step(WordTable& table, std::vector<Owner>& owners, ShardedCounts& counts,
                    MergeFn&& merge, std::vector<ThreadDelta>& thread_delta,
-                   std::vector<ShardDelta>& shard_delta, int threads) {
+                   std::vector<ShardDelta>& shard_delta, int threads,
+                   bool erase_zero_pairs = true) {
   const int n_owners = static_cast<int>(owners.size());
   const int n_shards = static_cast<int>(counts.n_shards());
 #pragma omp parallel num_threads(threads)
@@ -263,10 +294,12 @@ void parallel_step(WordTable& table, std::vector<Owner>& owners, ShardedCounts& 
       }
     }  // implicit barrier
 
+    if (erase_zero_pairs) {
 #pragma omp for schedule(dynamic, 1)
-    for (int o = 0; o < n_owners; ++o) {
-      for (const ShardDelta& sd : shard_delta) {
-        for (const PairKey k : sd.zero) owners[o].index.erase(k);
+      for (int o = 0; o < n_owners; ++o) {
+        for (const ShardDelta& sd : shard_delta) {
+          for (const PairKey k : sd.zero) owners[o].index.erase(k);
+        }
       }
     }
   }

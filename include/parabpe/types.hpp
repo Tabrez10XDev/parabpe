@@ -50,7 +50,8 @@ struct TrainConfig {
   bool verify_batches = false;         // IncrBatch: check every member against a sequential oracle
   size_t owners_per_thread = 4;        // IncrBatch: hashed owners per thread (1 owner at 1 thread)
   size_t batch_scan_cap = 4096;        // IncrBatch: live tie-group entries scanned per round
-  std::string trace_path;              // --trace: Chrome Trace JSON output, empty = off
+  bool batch_skip_small = true;  // IncrBatch: a round too small to go parallel merges one pair
+  std::string trace_path;        // --trace: Chrome Trace JSON output, empty = off
 };
 
 // Output of phase 1: unique pre-tokens (raw bytes) and their frequencies.
@@ -78,6 +79,7 @@ enum class BatchStop { Disjoint, Tie, Self, Budget, Capped };
 // Batched-merging statistics; stays zero for the other engines.
 struct MergeStats {
   uint64_t rounds = 0, max_batch = 0, parallel_rounds = 0, changed_pairs = 0;
+  uint64_t small_rounds = 0;             // cut to one merge by batch_skip_small; in no stop reason
   std::array<uint64_t, 9> batch_hist{};  // sizes 1, 2, 3-4, 5-8, 9-16, 17-32, 33-64, 65-128, 129+
   std::array<uint64_t, 5> stops{};       // indexed by BatchStop
   double select_s = 0, order_s = 0;      // serial selection and heap-update time in phase 3

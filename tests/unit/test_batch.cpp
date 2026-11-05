@@ -3,12 +3,14 @@
 
 #include <gtest/gtest.h>
 
+#include <algorithm>
 #include <random>
 #include <string>
 #include <vector>
 
 #include "batch_select.hpp"
 #include "bpe_common.hpp"
+#include "incr_common.hpp"
 #include "parabpe/merge_engine.hpp"
 #include "parabpe/trainer.hpp"
 #include "strategies.hpp"
@@ -52,6 +54,7 @@ TrainResult verified(const std::string& text, size_t vocab_size, size_t scan_cap
   cfg.merge = MergeStrategy::IncrBatch;
   cfg.verify_batches = true;
   cfg.batch_scan_cap = scan_cap;
+  cfg.batch_skip_small = false;
   return train_text(text, cfg);
 }
 
@@ -228,12 +231,105 @@ TEST(BatchEngine, EveryRuleIsExactOnRandomCorpora) {
     cfg.vocab_size = 256 + 1 + 1 + rng() % 120;
     const std::vector<Merge> naive = train_text(text, cfg).merges;
     cfg.verify_batches = true;
+    cfg.batch_skip_small = false;
     cfg.batch_scan_cap = trial % 4 == 0 ? rng() % 4 : 256;
     for (BatchRule rule : {BatchRule::Strict, BatchRule::Relaxed, BatchRule::Closed}) {
       ASSERT_EQ(run_rule(rule, text, cfg), naive)
           << "rule " << static_cast<int>(rule) << " trial " << trial << " text \"" << text << "\"";
     }
   }
+}
+
+TEST(HashedOwners, EveryWordOnceInIncreasingOrder) {
+  WordTable t;
+  t.offset.resize(10000);
+  for (const size_t n : {size_t{1}, size_t{3}, size_t{20}, size_t{44}}) {
+    const std::vector<detail::Owner> owners = detail::partition_words_hashed(t, n);
+    ASSERT_EQ(owners.size(), n);
+    std::vector<int> seen(t.size(), 0);
+    for (const detail::Owner& o : owners) {
+      EXPECT_TRUE(std::is_sorted(o.words.begin(), o.words.end()));
+      o.for_each_word([&seen](uint32_t w) { ++seen[w]; });
+    }
+    EXPECT_TRUE(std::all_of(seen.begin(), seen.end(), [](int c) { return c == 1; }));
+  }
+}
+
+TEST(BatchEngine, ParallelRoundsMatchNaive) {
+  std::mt19937 rng(9001);
+  for (int trial = 0; trial < 60; ++trial) {
+    std::string text;
+    const int n = 200 + static_cast<int>(rng() % 3000);
+    const std::string alphabet = trial % 2 ? "abcd \n" : "abcdefghij  \n";
+    for (int i = 0; i < n; ++i) text += alphabet[rng() % alphabet.size()];
+    TrainConfig cfg;
+    cfg.vocab_size = 256 + 1 + 1 + rng() % 200;
+    const std::vector<Merge> naive = train_text(text, cfg).merges;
+    cfg.merge = MergeStrategy::IncrBatch;
+    cfg.verify_batches = true;
+    for (const int threads : {2, 3, 8, 16}) {
+      for (const size_t owners : {size_t{1}, size_t{4}}) {
+        for (const size_t threshold : {size_t{0}, size_t{32}}) {
+          cfg.threads = threads;
+          cfg.batch_skip_small = trial % 2 == 0;
+          cfg.owners_per_thread = owners;
+          cfg.par_threshold_tokens = threshold;
+          const TrainResult r = train_text(text, cfg);
+          ASSERT_EQ(r.merges, naive) << "threads " << threads << " owners " << owners
+                                     << " threshold " << threshold << " trial " << trial;
+          if (threshold == 0 && !r.merges.empty()) {
+            EXPECT_EQ(r.stats.parallel_rounds, r.stats.rounds);
+          }
+        }
+      }
+    }
+  }
+}
+
+TEST(BatchEngine, ZeroPairSweepKeepsResultsExact) {
+  // Enough distinct pairs that many reach 0 and the periodic sweep runs mid-training.
+  std::mt19937 rng(31337);
+  std::string text;
+  for (int doc = 0; doc < 3000; ++doc) {
+    const int len = 2 + static_cast<int>(rng() % 12);
+    for (int i = 0; i < len; ++i) text += static_cast<char>('a' + rng() % 26);
+    text += "<|endoftext|>";
+  }
+  TrainConfig cfg;
+  cfg.vocab_size = 256 + 1 + 6000;
+  const std::vector<Merge> naive = train_text(text, cfg).merges;
+  cfg.merge = MergeStrategy::IncrBatch;
+  cfg.verify_batches = true;
+  cfg.batch_skip_small = false;
+  for (const int threads : {1, 3, 8}) {
+    cfg.threads = threads;
+    cfg.par_threshold_tokens = 0;
+    EXPECT_EQ(train_text(text, cfg).merges, naive) << "threads " << threads;
+  }
+}
+
+TEST(BatchEngine, SmallRoundsAreSkippedWithoutChangingTheResult) {
+  const std::string text = docs({{"ab", 9}, {"cd", 7}, {"ef", 5}, {"gh", 3}});
+  TrainConfig cfg;
+  cfg.vocab_size = 256 + 1 + 4;
+  const std::vector<Merge> naive = train_text(text, cfg).merges;
+  cfg.merge = MergeStrategy::IncrBatch;
+  cfg.verify_batches = true;
+  cfg.threads = 3;
+  cfg.par_threshold_tokens = 1 << 20;  // no round can reach it
+  const TrainResult skipped = train_text(text, cfg);
+  EXPECT_EQ(skipped.merges, naive);
+  EXPECT_EQ(skipped.stats.rounds, 4u);
+  EXPECT_GT(skipped.stats.small_rounds, 0u);
+  cfg.batch_skip_small = false;
+  const TrainResult full = train_text(text, cfg);
+  EXPECT_EQ(full.merges, naive);
+  EXPECT_EQ(full.stats.rounds, 1u);
+  EXPECT_EQ(full.stats.small_rounds, 0u);
+  // Without threads no round can go parallel, so every round is a single merge.
+  cfg.batch_skip_small = true;
+  cfg.threads = 1;
+  EXPECT_EQ(train_text(text, cfg).stats.rounds, 4u);
 }
 
 TEST(BatchEngine, StatsAddUp) {
@@ -243,6 +339,6 @@ TEST(BatchEngine, StatsAddUp) {
   EXPECT_EQ(rounds, r.stats.rounds);
   uint64_t stops = 0;
   for (const uint64_t n : r.stats.stops) stops += n;
-  EXPECT_EQ(stops, r.stats.rounds);
+  EXPECT_EQ(stops + r.stats.small_rounds, r.stats.rounds);
   EXPECT_GT(r.stats.changed_pairs, 0u);
 }

@@ -140,6 +140,7 @@ std::string format_batch_stats(const MergeStats& s, const TrainConfig& cfg) {
   std::ostringstream o;
   o << "  \"batch\": {\"rounds\": " << s.rounds << ", \"max_batch\": " << s.max_batch
     << ", \"parallel_rounds\": " << s.parallel_rounds << ", \"changed_pairs\": " << s.changed_pairs
+    << ", \"small_rounds\": " << s.small_rounds
     << ", \"select\": " << format_double(s.select_s) << ", \"order\": " << format_double(s.order_s)
     << ", \"owners_per_thread\": " << cfg.owners_per_thread
     << ", \"scan_cap\": " << cfg.batch_scan_cap << ", \"verified\": "

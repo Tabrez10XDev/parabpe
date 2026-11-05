@@ -74,6 +74,8 @@ int main(int argc, char** argv) {
       ->check(CLI::PositiveNumber);
   tr->add_option("--batch-scan-cap", cfg.batch_scan_cap,
                  "incr-batch: tie-group entries scanned per round");
+  tr->add_flag("!--batch-full-rounds", cfg.batch_skip_small,
+               "incr-batch: batch every round, even ones too small to go parallel (span figures)");
   tr->add_option("--trace", cfg.trace_path, "Write a Chrome Trace JSON file");
   auto* special_opt = tr->add_option("--special", specials,
                                      "Special token, repeatable (default: <|endoftext|>)")
