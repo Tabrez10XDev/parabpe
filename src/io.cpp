@@ -120,6 +120,10 @@ const char* name_of(PretokReduce r) {
   return r == PretokReduce::Bucketed ? "bucketed" : "critical";
 }
 
+const char* name_of(OwnerMap m) {
+  return m == OwnerMap::Hashed ? "hashed" : "contiguous";
+}
+
 const char* name_of(MergeStrategy s) {
   switch (s) {
     case MergeStrategy::NaiveSerial: return "naive-serial";
@@ -277,6 +281,15 @@ std::string format_timings(const TrainResult& result, const std::string& input,
     << ", \"pairs\": " << format_double(t.pairs) << ", \"merge\": " << format_double(t.merge)
     << ", \"total\": " << format_double(t.total) << "},\n";
   if (cfg.merge == MergeStrategy::IncrBatch) o << format_batch_stats(result.stats, cfg);
+  if (cfg.merge == MergeStrategy::IncrPar) {
+    const MergeStats& s = result.stats;
+    o << "  \"owners\": {\"map\": \"" << name_of(cfg.owner_map) << '"';
+    if (cfg.owner_stats) {
+      const double ratio = s.owner_mean > 0 ? s.owner_busiest / s.owner_mean : 0;
+      o << ", \"big_steps\": " << s.big_steps << ", \"busiest_mean\": " << format_double(ratio);
+    }
+    o << "},\n";
+  }
   o << "  \"config\": {\"input\": " << json_string(input) << ", \"vocab_size\": " << cfg.vocab_size
     << ", \"threads\": " << cfg.threads << ", \"pretok\": \"" << name_of(cfg.pretok)
     << "\", \"pretok_reduce\": \"" << name_of(cfg.pretok_reduce) << "\", \"merge\": \""

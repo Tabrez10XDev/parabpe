@@ -306,6 +306,24 @@ random-corpus list (oracle on) and `run_matrix.py`.
   a core each (the ASan deadlock). Kill them before any benchmark. All battery timings so far ran alongside them.
 - The Mac slept during a foreground test run even in the middle of a session. Wrap long runs in `caffeinate -i`.
 
+### B5 (2026-11-06, done out of order: B4's kill check is still pending)
+- `--owner-map contiguous|hashed` for IncrPar, default contiguous. `--owner-stats` adds the load measurement; it is off by
+  default because it reads each touched word again, which would skew IncrPar timings.
+- Real engine, `wikitext.full` v32k, 572 big steps: busiest/mean 2.30 → 1.08 (T=5), 4.02 → 1.18 (T=11). Same step count
+  and ratios as batchsim, which shares no code with it. `merges.txt` equals IncrSerial in all four runs.
+- **Result worth reporting: the imbalance fix alone barely helps.** Phase 3 vs IncrSerial, median of 5, battery, indicative:
+
+| | T=5 contiguous | T=5 hashed | T=11 contiguous | T=11 hashed |
+|---|---:|---:|---:|---:|
+| v32k | 1.15× | 1.23× | 0.97× | 0.99× |
+| v100k | 1.11× | 1.14× | 0.94× | 0.95× |
+
+- Off-path cost: IncrSerial 0.602 s vs 0.597 s before B5, IncrPar 0.503 s vs 0.520 s, within noise.
+- 83/83 in Release and Debug. Matrix 0 mismatches on both slices, with `incr-par:hashed` as a new column.
+- Mutations: 4 of 4 caught, after one survivor showed the test never ran a small step; the test now does.
+- The two stale ASan processes have gone (not killed by us). IncrSerial v32k now takes about 0.59 s on battery, against
+  0.689 s when they were running, so B4's battery figures carried that load and the kill check must not reuse them.
+
 **Next task:** finish B4 on mains power: `owners_per_thread` {1,2,4} and threshold {1k,4k,16k,64k} sweep, then the kill check.
 Then B5. B4's kill check and S8 **need the Mac on mains power and
 awake**: `.venv/bin/python -I bench/run_bench.py bench/configs/<name>.yaml --require-ac`, then

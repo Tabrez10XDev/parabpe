@@ -177,7 +177,8 @@ Imbalance here is token work per owner on big steps, weighted by tokens (sum of 
 hashed owners the per-owner figure is 1.24 at T=5, but a thread takes several owners under `schedule(dynamic,1)`, so that
 is not a thread imbalance. The contiguous 2.30 and the 80.5% match the prototype. Two figures do not: hashed is 1.07–1.08
 against the prototype's 1.02–1.06, and the batched share is 90.0% against its 91.2%. Neither difference is explained, and
-the prototype's source is gone. B5 measures the imbalance in the real engine.
+the prototype's source is gone. B5 measured the imbalance in the real engine and got batchsim's numbers: 2.30 → 1.08 at
+T=5 and 4.02 → 1.18 at T=11, one merge per step on `wikitext.full` v32k.
 
 **A warning about what verification shows.** Two deliberately wrong rules (`all`, k = K; `one-based`, one member too many)
 fail on `wikitext.10M` and `tinystories.100M`, but **both pass on `wikitext.full` v32k**, where big corpora have few

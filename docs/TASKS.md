@@ -25,7 +25,7 @@ Work through the tasks in **pick-up order**. A task can start once everything in
 | 15 | B2 `incr-batch` plumbing | ✅ | B1 |
 | 16 | B3 Serial batched engine + verifier + tests | ✅ | B2 |
 | 17 | B4 Hashed owners + parallel rounds (**mains power** for the kill check) | 🟨 code done; kill check and default sweep need mains | B3 |
-| 18 | B5 IncrPar owner-map ablation | ⬜ | B4 |
+| 18 | B5 IncrPar owner-map ablation | ✅ | B4 |
 | 19 | N6 Related-work notes | ⬜ | — |
 | 20 | S8 Full benchmarks (on the Mac, **mains power**) | ⬜ | S4–S7, S10, N7, B5 |
 | 21 | B6 Trace (`--trace`, P/E labels) | ⬜ | B3 |
@@ -315,6 +315,11 @@ Acceptance: matrix includes `incr-batch` with 0 mismatches; `--verify-batches` p
 `--owner-map contiguous|hashed` for IncrPar (default contiguous). Log busiest-owner/mean tokens on steps ≥ 4096 in
 `MergeStats`, to measure the 2.30 → ~1.07 claim directly.
 
+**Done.** The measurement sits behind `--owner-stats` (off by default), because it reads every touched word a second
+time. `timings.json` gains an `owners` block for incr-par. `wikitext.full` v32k, one merge per step, 572 big steps:
+2.30 → 1.08 at T=5 and 4.02 → 1.18 at T=11, equal to batchsim's figures. Hashed barely changes speed (see HANDOFF), so
+imbalance was not IncrPar's main limit.
+
 ### N6: Related work
 Prior multi-merge and parallel BPE training: HF tokenizers, SentencePiece, YouTokenToMe, minbpe, papers. Write
 `docs/notes/related_work.md` and decide what the novelty claim may say.
@@ -323,7 +328,7 @@ Prior multi-merge and parallel BPE training: HF tokenizers, SentencePiece, YouTo
 `bench/configs/batch.yaml`: incr-serial, incr-par, incr-batch × omp × threads {1,2,3,4,5,6,8,11} × {wikitext.full,
 tinystories.1G} × vocab {32000, 100000}. `bench/configs/scale.yaml`: full TinyStories (2.2 GB) and 3.2 GB WikiText. Also
 main, naive, reduce, threshold and weak, all with `--require-ac`, plus the HF comparison again on mains power. Extend
-`run_bench.py` (`PARALLEL`, the threshold rule in `grid()`, `rounds`/`max_batch`) and `plot.py` (`STRATEGY_COLORS`, span
+`run_bench.py` (`PARALLEL`, the threshold rule in `grid()`, `rounds`/`max_batch`, `owner_map` for the B5 ablation) and `plot.py` (`STRATEGY_COLORS`, span
 chart, batch-size histogram). Commit `results/`. See also `docs/PLAN.md` §6.
 
 ### B6: Trace

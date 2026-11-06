@@ -16,7 +16,7 @@ import sys
 import tempfile
 
 PRETOKS = ["serial", "omp"]
-MERGES = ["naive-serial", "incr-serial", "naive-par", "incr-par", "incr-batch"]
+MERGES = ["naive-serial", "incr-serial", "naive-par", "incr-par", "incr-par:hashed", "incr-batch"]
 THREADS = [1, 2, 3, 4, 8, 16]
 OUTPUTS = ["merges.txt", "vocab.json"]
 SKIP = 77
@@ -27,8 +27,11 @@ def digest(out_dir):
 
 
 def train(binary, args, pretok, merge, threads, out_dir):
+    engine, _, owner_map = merge.partition(":")
     cmd = [binary, "train", "--input", args.input, "--vocab-size", str(args.vocab_size),
-           "--threads", str(threads), "--pretok", pretok, "--merge", merge, "--out", str(out_dir)]
+           "--threads", str(threads), "--pretok", pretok, "--merge", engine, "--out", str(out_dir)]
+    if owner_map:
+        cmd += ["--owner-map", owner_map]
     proc = subprocess.run(cmd, capture_output=True, text=True)
     if proc.returncode != 0:
         if "not implemented" in proc.stderr:

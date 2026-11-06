@@ -72,8 +72,9 @@ class ShardedCounts {
 };
 
 // A set of words and its private inverted index (S5). IncrSerial has one owner; IncrPar has one per
-// thread, each a contiguous range balanced by token count; IncrBatch has hashed owners (B4), whose
-// words are listed in increasing order instead of being a range.
+// thread, each a contiguous range balanced by token count unless --owner-map hashed says
+// otherwise (B5); IncrBatch has hashed owners (B4), whose words are listed in increasing order
+// instead of being a range.
 struct alignas(64) Owner {
   uint32_t begin = 0, end = 0;
   std::vector<uint32_t> words;  // hashed owners only
@@ -230,6 +231,9 @@ inline size_t tokens_touched(const WordTable& table, const std::vector<Owner>& o
   }
   return tokens;
 }
+
+// A step at least this big counts towards the owner-load statistics (B5).
+inline constexpr uint64_t kBigStepTokens = 4096;
 
 // Per-thread delta buffer (S6), pre-bucketed by counts shard; written in the hot loop, so padded.
 struct alignas(64) ThreadDelta {

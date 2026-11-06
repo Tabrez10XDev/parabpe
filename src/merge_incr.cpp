@@ -11,6 +11,32 @@
 namespace parabpe::detail {
 namespace {
 
+// Adds one step's load per owner to `s`, counting what merge_owner will rewrite: each listed word
+// once (`seen`, stamped with stamp), and only if it still holds the pair. Runs before the step.
+void record_owner_load(const WordTable& table, const std::vector<Owner>& owners,
+                       const MergeStep& step, std::vector<uint32_t>& seen, MergeStats& s) {
+  const uint32_t stamp = step.m + 1;
+  uint64_t busiest = 0, total = 0;
+  for (const Owner& owner : owners) {
+    const auto idx = owner.index.find(step.pair);
+    if (idx == owner.index.end()) continue;
+    uint64_t tokens = 0;
+    for (const uint32_t w : idx->second) {
+      if (seen[w] == stamp) continue;
+      seen[w] = stamp;
+      if (contains_pair(table.tokens.data() + table.offset[w], table.len[w], step.a, step.b)) {
+        tokens += table.len[w];
+      }
+    }
+    busiest = std::max(busiest, tokens);
+    total += tokens;
+  }
+  if (total < kBigStepTokens) return;
+  ++s.big_steps;
+  s.owner_busiest += static_cast<double>(busiest);
+  s.owner_mean += static_cast<double>(total) / static_cast<double>(owners.size());
+}
+
 // S3 (serial), S5 (parallel phase 2) and S6 (parallel phase 3): inverted index + whole-word diff
 // updates + lazy max-heap. In IncrPar the master runs the merge loop; a step that touches at least
 // cfg.par_threshold_tokens tokens opens a parallel region in which each owner merges its own words
@@ -36,7 +62,9 @@ class IncrEngine final : public MergeEngine {
 
     // Phase 2: counts, per-owner inverted indexes, heap.
     const double t0 = omp_get_wtime();
-    std::vector<Owner> owners = partition_words(table, parallel_ ? cfg.threads : 1);
+    std::vector<Owner> owners = parallel_ && cfg.owner_map == OwnerMap::Hashed
+                                    ? partition_words_hashed(table, cfg.threads)
+                                    : partition_words(table, parallel_ ? cfg.threads : 1);
     ShardedCounts counts;
     if (parallel_) {
       count_parallel(table, owners, counts, cfg.threads);
@@ -66,6 +94,8 @@ class IncrEngine final : public MergeEngine {
     PairCounts delta;  // serial steps
     std::vector<ThreadDelta> thread_delta(parallel_ ? cfg.threads : 0);
     std::vector<ShardDelta> shard_delta(counts.n_shards());
+    const bool log_owners = parallel_ && cfg.owner_stats;
+    std::vector<uint32_t> seen(log_owners ? table.size() : 0, 0);
     for (uint32_t m = 0; m < n_merges; ++m) {
       // Pop until the top is live: its count is the current (positive) count of its pair.
       PairKey best = 0;
@@ -87,6 +117,7 @@ class IncrEngine final : public MergeEngine {
                            static_cast<TokenId>(token_bytes.size())};
       // Before any push: the heap comparator reads the bytes of pairs that contain z.
       token_bytes.push_back(token_bytes[step.a] + token_bytes[step.b]);
+      if (log_owners) record_owner_load(table, owners, step, seen, stats_);
 
       const bool par_step =
           parallel_ && cfg.threads > 1 &&
@@ -126,8 +157,11 @@ class IncrEngine final : public MergeEngine {
     return merges;
   }
 
+  MergeStats stats() const override { return stats_; }
+
  private:
   bool parallel_;
+  MergeStats stats_;
 };
 
 }  // namespace

@@ -53,6 +53,9 @@ int main(int argc, char** argv) {
       {"incr-par", MergeStrategy::IncrPar},
       {"incr-batch", MergeStrategy::IncrBatch}};
 
+  const std::map<std::string, OwnerMap> owner_map{{"contiguous", OwnerMap::Contiguous},
+                                                  {"hashed", OwnerMap::Hashed}};
+
   auto* tr = app.add_subcommand("train", "Train merges on a prepared corpus");
   tr->add_option("--input", input, "Prepared corpus (UTF-8, <|endoftext|>-separated)")
       ->required()
@@ -66,6 +69,10 @@ int main(int argc, char** argv) {
       ->transform(CLI::CheckedTransformer(reduce_map));
   tr->add_option("--merge", cfg.merge)->transform(CLI::CheckedTransformer(merge_map));
   tr->add_option("--par-threshold-tokens", cfg.par_threshold_tokens);
+  tr->add_option("--owner-map", cfg.owner_map, "incr-par: how words are assigned to owners")
+      ->transform(CLI::CheckedTransformer(owner_map));
+  tr->add_flag("--owner-stats", cfg.owner_stats,
+               "incr-par: report busiest/mean owner load (slows the run; not for timings)");
   tr->add_option("--work-unit-bytes", cfg.work_unit_bytes);
   tr->add_flag("--verify-batches", cfg.verify_batches,
                "incr-batch: check every member against a sequential oracle");

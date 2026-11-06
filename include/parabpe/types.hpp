@@ -36,6 +36,8 @@ enum class PretokStrategy { Serial, OMP };
 // OMP pre-tokenizer: how thread-local word maps are combined (critical = the report's baseline).
 enum class PretokReduce { Bucketed, Critical };
 enum class MergeStrategy { NaiveSerial, IncrSerial, NaivePar, IncrPar, IncrBatch };
+// How IncrPar assigns words to owners (B5). IncrBatch is always hashed.
+enum class OwnerMap { Contiguous, Hashed };
 
 struct TrainConfig {
   size_t vocab_size = 32000;
@@ -46,6 +48,8 @@ struct TrainConfig {
   PretokReduce pretok_reduce = PretokReduce::Bucketed;
   MergeStrategy merge = MergeStrategy::IncrSerial;
   size_t par_threshold_tokens = 4096;  // IncrPar: below this, the master does the step alone
+  OwnerMap owner_map = OwnerMap::Contiguous;  // IncrPar only
+  bool owner_stats = false;  // IncrPar: measure owner load (an extra pass over touched words)
   size_t work_unit_bytes = 1 << 20;    // fixed, independent of thread count (SPEC.md §2)
   bool verify_batches = false;         // IncrBatch: check every member against a sequential oracle
   size_t owners_per_thread = 4;        // IncrBatch: hashed owners per thread (1 owner at 1 thread)
@@ -83,6 +87,10 @@ struct MergeStats {
   std::array<uint64_t, 9> batch_hist{};  // sizes 1, 2, 3-4, 5-8, 9-16, 17-32, 33-64, 65-128, 129+
   std::array<uint64_t, 5> stops{};       // indexed by BatchStop
   double select_s = 0, order_s = 0;      // serial selection and heap-update time in phase 3
+  // IncrPar with owner_stats: tokens rewritten on steps of at least kBigStepTokens, summed over
+  // those steps. owner_busiest / owner_mean is the token-weighted busiest/mean owner load.
+  uint64_t big_steps = 0;
+  double owner_busiest = 0, owner_mean = 0;
 };
 
 // Token id -> raw bytes. Ids [0, 256) are single bytes, then special tokens, then merges.

@@ -286,6 +286,62 @@ TEST(BatchEngine, ParallelRoundsMatchNaive) {
   }
 }
 
+TEST(OwnerMap, HashedIncrParMatchesNaive) {
+  std::mt19937 rng(4242);
+  for (int trial = 0; trial < 60; ++trial) {
+    std::string text;
+    const int n = 200 + static_cast<int>(rng() % 3000);
+    const std::string alphabet = trial % 2 ? "abcd \n" : "abcdefghij  \n";
+    for (int i = 0; i < n; ++i) text += alphabet[rng() % alphabet.size()];
+    TrainConfig cfg;
+    cfg.vocab_size = 256 + 1 + 1 + rng() % 200;
+    const std::vector<Merge> naive = train_text(text, cfg).merges;
+    cfg.merge = MergeStrategy::IncrPar;
+    cfg.owner_map = OwnerMap::Hashed;
+    cfg.owner_stats = trial % 3 == 0;  // measuring must not change the result
+    for (const int threads : {1, 2, 3, 8, 16}) {
+      for (const size_t threshold : {size_t{0}, size_t{32}}) {
+        cfg.threads = threads;
+        cfg.par_threshold_tokens = threshold;
+        ASSERT_EQ(train_text(text, cfg).merges, naive)
+            << "threads " << threads << " threshold " << threshold << " trial " << trial;
+      }
+    }
+  }
+}
+
+// 1000 words starting "qu" and 1000 starting "xy": sorted by bytes, each group is one half of the
+// table, so the two big merges each land entirely in one of two contiguous owners.
+TEST(OwnerMap, ContiguousClustersAPairAndHashedSpreadsIt) {
+  std::vector<std::pair<std::string, int>> words;
+  for (const std::string prefix : {"qu", "xy"}) {
+    for (int i = 0; i < 1000; ++i) {
+      std::string w = prefix;
+      for (int d = 0, v = i; d < 4; ++d, v /= 8) w += static_cast<char>('a' + v % 8);
+      words.push_back({w, 1});
+    }
+  }
+  const std::string text = docs(words);
+  TrainConfig cfg;
+  cfg.vocab_size = 256 + 1 + 6;  // the two big merges, then four small ones that must not count
+  cfg.merge = MergeStrategy::IncrPar;
+  cfg.threads = 2;
+  EXPECT_EQ(train_text(text, cfg).stats.big_steps, 0u);  // off by default
+
+  cfg.owner_stats = true;
+  const TrainResult contiguous = train_text(text, cfg);
+  ASSERT_EQ(contiguous.stats.big_steps, 2u);
+  EXPECT_DOUBLE_EQ(contiguous.stats.owner_busiest / contiguous.stats.owner_mean, 2.0);
+  EXPECT_DOUBLE_EQ(contiguous.stats.owner_mean, 2.0 * 6000 / 2);
+
+  cfg.owner_map = OwnerMap::Hashed;
+  const TrainResult hashed = train_text(text, cfg);
+  ASSERT_EQ(hashed.stats.big_steps, 2u);
+  EXPECT_DOUBLE_EQ(hashed.stats.owner_mean, contiguous.stats.owner_mean);
+  EXPECT_LT(hashed.stats.owner_busiest / hashed.stats.owner_mean, 1.3);
+  EXPECT_EQ(hashed.merges, contiguous.merges);
+}
+
 TEST(BatchEngine, ZeroPairSweepKeepsResultsExact) {
   // Enough distinct pairs that many reach 0 and the periodic sweep runs mid-training.
   std::mt19937 rng(31337);

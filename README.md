@@ -74,7 +74,7 @@ report/            LaTeX report
 | B2 | `incr-batch` plumbing | ✅ |
 | B3 | `incr-batch` serial engine + `--verify-batches` | ✅ |
 | B4 | Hashed owners, parallel rounds | 🟨 kill check pending (mains power) |
-| B5 | Owner-map ablation | ⬜ |
+| B5 | Owner-map ablation | ✅ |
 | N6 | Related work | ⬜ |
 | S8 | Benchmarks | ⬜ |
 | B6–B7 | Trace, ParaBPE Studio | ⬜ |
