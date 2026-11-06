@@ -26,7 +26,7 @@ Work through the tasks in **pick-up order**. A task can start once everything in
 | 16 | B3 Serial batched engine + verifier + tests | ✅ | B2 |
 | 17 | B4 Hashed owners + parallel rounds (**mains power** for the kill check) | 🟨 code done; kill check and default sweep need mains | B3 |
 | 18 | B5 IncrPar owner-map ablation | ✅ | B4 |
-| 19 | N6 Related-work notes | ⬜ | — |
+| 19 | N6 Related-work notes | ✅ | — |
 | 20 | S8 Full benchmarks (on the Mac, **mains power**) | ⬜ | S4–S7, S10, N7, B5 |
 | 21 | B6 Trace (`--trace`, P/E labels) | ⬜ | B3 |
 | 22 | B7 ParaBPE Studio | ⬜ | B6, S8 |
@@ -323,6 +323,10 @@ imbalance was not IncrPar's main limit.
 ### N6: Related work
 Prior multi-merge and parallel BPE training: HF tokenizers, SentencePiece, YouTokenToMe, minbpe, papers. Write
 `docs/notes/related_work.md` and decide what the novelty claim may say.
+
+**Done.** BatchBPE (Morgan, 2024) already batches merges, so the claim is narrower than "first batched BPE": see the note
+for the allowed wording. Before S9, check the BatchBPE §3.6 wording against the PDF and read the two-phase BoundlessBPE
+paper in full.
 
 ### S8: Full benchmarks (needs mains power)
 `bench/configs/batch.yaml`: incr-serial, incr-par, incr-batch × omp × threads {1,2,3,4,5,6,8,11} × {wikitext.full,

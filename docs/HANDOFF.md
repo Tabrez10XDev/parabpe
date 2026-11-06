@@ -324,6 +324,12 @@ random-corpus list (oracle on) and `run_matrix.py`.
 - The two stale ASan processes have gone (not killed by us). IncrSerial v32k now takes about 0.59 s on battery, against
   0.689 s when they were running, so B4's battery figures carried that load and the kill check must not reuse them.
 
+### N6 (2026-11-06)
+`docs/notes/related_work.md`. **BatchBPE already merges many pairs per batch**, and HF and YouTokenToMe already
+parallelise the merge step, so the report may not say "first batched" or "first parallel". What we did not find: several
+merges per parallel round with a proof that the merge list, order included, is byte-identical to sequential training.
+BatchBPE's README says its merge order differs. Use the wording in the note. S9 follow-ups are on the card.
+
 **Next task:** finish B4 on mains power: `owners_per_thread` {1,2,4} and threshold {1k,4k,16k,64k} sweep, then the kill check.
 Then B5. B4's kill check and S8 **need the Mac on mains power and
 awake**: `.venv/bin/python -I bench/run_bench.py bench/configs/<name>.yaml --require-ac`, then
