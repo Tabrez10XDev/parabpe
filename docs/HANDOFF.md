@@ -302,8 +302,8 @@ random-corpus list (oracle on) and `run_matrix.py`.
 - `--verify-batches` passes at 5 and 11 threads at v32k and v100k, with and without skipping; `merges.txt` equals IncrSerial
   in all eight runs.
 - Mutations: 16 of 17 caught. The survivor (no per-round stamp) is an equivalent mutant, explained in the note.
-- **Two stale `build-asan/parabpe_tests --gtest_list_tests` processes** have been spinning since 2026-11-02 at about 45% of
-  a core each (the ASan deadlock). Kill them before any benchmark. All battery timings so far ran alongside them.
+- Two stale `build-asan/parabpe_tests --gtest_list_tests` processes (the ASan deadlock) ran alongside all the B4 battery
+  timings at about 45% of a core each. They had gone by 2026-11-06.
 - The Mac slept during a foreground test run even in the middle of a session. Wrap long runs in `caffeinate -i`.
 
 ### B5 (2026-11-06, done out of order: B4's kill check is still pending)
@@ -331,7 +331,7 @@ merges per parallel round with a proof that the merge list, order included, is b
 BatchBPE's README says its merge order differs. Use the wording in the note. S9 follow-ups are on the card.
 
 **Next task:** finish B4 on mains power: `owners_per_thread` {1,2,4} and threshold {1k,4k,16k,64k} sweep, then the kill check.
-Then B5. B4's kill check and S8 **need the Mac on mains power and
+After that comes S8. B4's kill check and S8 **need the Mac on mains power and
 awake**: `.venv/bin/python -I bench/run_bench.py bench/configs/<name>.yaml --require-ac`, then
 `bench/plot.py results/*.csv --out-dir results/plots`.
 
