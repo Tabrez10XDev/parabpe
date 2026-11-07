@@ -340,8 +340,11 @@ main, naive, reduce, threshold, weak, plus `owners`, `owner_load` and `span`, al
 `run_bench.py` (`PARALLEL`, the threshold rule in `grid()`, `rounds`/`max_batch`, `owner_map` for the B5 ablation) and `plot.py` (`STRATEGY_COLORS`, span
 chart, batch-size histogram). Commit `results/`. See also `docs/PLAN.md` §6.
 
-**Tooling done, runs not started.** Run `bench/configs/b4_sweep.yaml` and `bench/kill_check.py` first and set the defaults,
-then `scripts/run_s8.sh`, then `scripts/run_s8.sh --clean`. "3.2 GB WikiText" wasn't defined anywhere: it is six copies of
+**Done (2026-11-07, mains power).** 10 configs + B4 sweep: 2,232 rows, 0 stalled, 0 failed, 0 on battery, and one
+`merges_sha256` per (input, vocab) across every engine and thread count. Plots and `summary.md` in `results/plots/`, HF
+profiles in `results/profile_*.md`. Temporary corpora deleted. `scale` was rerun from the start after the Mac left mains
+power at its 3rd configuration (`run_bench.py` stopped, as designed). Run order: the B4 sweep and kill check, then
+`scripts/run_s8.sh`, then `scripts/run_s8.sh --clean`. "3.2 GB WikiText" wasn't defined anywhere: it is six copies of
 `wikitext.full` (`wikitext.x6`), which adds bytes but no unique words, so don't present it as a bigger vocabulary test.
 
 ### B6: Trace

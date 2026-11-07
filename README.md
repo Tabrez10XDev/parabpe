@@ -76,6 +76,6 @@ report/            LaTeX report
 | B4 | Hashed owners, parallel rounds | ✅ kill check passed (1.83× / 1.39×) |
 | B5 | Owner-map ablation | ✅ |
 | N6 | Related work | ✅ |
-| S8 | Benchmarks | ⬜ |
+| S8 | Benchmarks | ✅ `results/`, `results/plots/` |
 | B6–B7 | Trace, ParaBPE Studio | ⬜ |
 | S9 | Report | ⬜ |

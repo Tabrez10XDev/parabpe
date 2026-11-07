@@ -362,8 +362,28 @@ Phase 3 speedup vs IncrSerial, `owners_per_thread=1`, median of 3:
 - **Baseline guard:** IncrSerial phase 3 is 0.61–0.64 s at v32k, below the plan's 0.66–0.68 s. The old figure was taken
   while the two stale ASan processes ran, so this is the cleaner baseline, not a regression. S8 re-measures it anyway.
 
-**Next task:** S8 on mains power: `scripts/run_s8.sh` (about 2¼–3 h, lid open), check the stalled counts, then
-`scripts/run_s8.sh --clean`. S8 **needs the Mac on mains power and
+### S8 (2026-11-07, mains power)
+All configs ran: 2,232 rows, 0 stalled, 0 failed, 0 on battery. **Every row for a given (input, vocab) has the same
+`merges_sha256`**, across engines, pre-tokenizers and threads. Results in `results/*.csv`, charts and `summary.md` in
+`results/plots/`, HF profiles in `results/profile_*.md`. The temporary corpora are deleted.
+- **Phase 3 vs IncrSerial (`batch.csv`, median of 5):** wikitext.full v32k: incr-batch 1.65× at 5 threads, 1.40× at 11;
+  incr-par 1.17× / 0.97×. v100k: 1.36× / 1.15×; incr-par 1.10× / 0.94×. The B4 sweep's 1.83× came with a slower
+  IncrSerial run (0.636 s against 0.593 s here); incr-batch itself took the same time. **Quote the S8 figures.**
+- TinyStories phase 3 is about 50–90 ms, so no engine gains there: incr-batch is 0.97–1.01× at 3–5 threads and 0.76× at 11.
+- **Total vs serial IncrSerial at 1 thread:** wikitext.full v32k 3.40× (5 threads) and 3.91× (11); tinystories.1G 4.44×
+  and 6.23×. Phase 1 dominates, so totals track the pre-tokenizer.
+- `scale`: tinystories.full (2.2 GB) 20.4 s → 3.3 s at 11 threads; wikitext.x6 29.9 s → 6.3 s. wikitext.x6 phase 3
+  equals wikitext.full's (same unique words), incr-batch 1.64× at 5 threads.
+- Span (full rounds): wikitext.full 12.4× fewer steps at v32k, 4.7× at v100k; TinyStories 1.8–3.1×.
+- Owner load (hashed vs contiguous): wikitext.full 2.30 → 1.08 at T=5, 4.02 → 1.18 at T=11; tinystories.1G 2.20 → 1.18,
+  3.82 → 1.41. v32k and v100k are identical because every step of ≥ 4096 tokens happens within the first 32k merges.
+- Weak scaling of phase 1 (~50 MB per thread): efficiency 0.92 at 5 threads, 0.46 at 11.
+- HF `tokenizers` on the 100M slices, 11 threads: 4.08 s (WikiText) and 4.00 s (TinyStories) against our 0.46 s and
+  0.18 s. One run per row, and HF breaks ties differently, so its merge count differs slightly (see `profiling.md`).
+- The Mac left mains power once, during `scale`. The partial CSV went to `runs/` and `scale` was rerun from the start.
+
+**Next task:** B6 (trace). After it, re-measure IncrSerial and incr-batch on `wikitext.full` (plan finding 8) and rerun
+S8 configs only if the trace-off cost is outside noise. Timing runs **need the Mac on mains power and
 awake**: `.venv/bin/python -I bench/run_bench.py bench/configs/<name>.yaml --require-ac`, then
 `bench/plot.py results/*.csv --out-dir results/plots`.
 
