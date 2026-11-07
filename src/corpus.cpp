@@ -11,6 +11,8 @@
 #include <stdexcept>
 #include <utility>
 
+#include "trace.hpp"
+
 namespace parabpe {
 
 Corpus Corpus::open(const std::string& path) {
@@ -189,6 +191,7 @@ std::vector<Occurrence> find_specials_parallel(std::string_view text,
 #pragma omp parallel for schedule(dynamic, 1) num_threads(threads)
   for (int r = 0; r < threads; ++r) {
     const size_t begin = n * r / threads, end = n * (r + 1) / threads;
+    const detail::TraceSpan span(detail::TraceKind::Chunk, end - begin);
     const std::string_view window = text.substr(begin, end - begin + max_len - 1);
     std::vector<Occurrence>& mine = found[r];
     for (const auto& s : specials) {

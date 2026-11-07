@@ -353,6 +353,13 @@ CHUNK, PRETOK_UNIT, SELECT, SERIAL_APPLY, OWNER_MERGE, SHARD_REDUCE, ZERO_SWEEP,
 `pthread_cpu_number_np` and `ioreg` (ids 0–5 = E, 6–10 = P on this Mac): a sample, not pinning. This lands after S8, so
 re-measure IncrSerial and `incr-batch` afterwards, and rerun S8 configs if the off cost isn't within noise.
 
+**Done (2026-11-07).** `src/trace.{hpp,cpp}`: one global tracer pointer (null = off), per-thread `alignas(64)` buffers,
+`TraceSpan`/`trace_since` hooks in the chunker, the OMP pre-tokenizer, `parallel_step` (so IncrPar too) and incr-batch.
+IncrSerial's merge path has no hooks. `scripts/trace_summary.py` checks a trace (names, threads, nesting, nothing dropped)
+and prints time per kind and the E-core share. Overhead on `wikitext.full`, 5 threads, median of 7, interleaved, mains:
+off vs the pre-B6 binary within noise (phase 3 +0.0–0.5%, inside the min–max spread); on +0.0% (v32k) and +1.2% (v100k).
+No S8 rerun needed. The trace file is written after the clock stops: 10 MB at v32k, 40 MB at v100k.
+
 ### B7: ParaBPE Studio
 `studio/index.html` (vanilla JS, no build) + `studio/serve.py` (stdlib, bound to 127.0.0.1, inputs under `data/` only).
 Replay with swimlanes and P/E badges, merges landing per round, a merges/rounds counter and span curve, an exactness badge

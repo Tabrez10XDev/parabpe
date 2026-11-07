@@ -382,8 +382,25 @@ All configs ran: 2,232 rows, 0 stalled, 0 failed, 0 on battery. **Every row for 
   0.18 s. One run per row, and HF breaks ties differently, so its merge count differs slightly (see `profiling.md`).
 - The Mac left mains power once, during `scale`. The partial CSV went to `runs/` and `scale` was rerun from the start.
 
-**Next task:** B6 (trace). After it, re-measure IncrSerial and incr-batch on `wikitext.full` (plan finding 8) and rerun
-S8 configs only if the trace-off cost is outside noise. Timing runs **need the Mac on mains power and
+### B6 (2026-11-07)
+- `--trace FILE` writes Chrome Trace Event JSON (ui.perfetto.dev). Kinds: CHUNK, PRETOK_UNIT, SHARD_REDUCE, SELECT,
+  SERIAL_APPLY, OWNER_MERGE, ZERO_SWEEP, ORDER_UPDATE. `src/trace.hpp` lists what each one's `arg` counts.
+- Off = one global pointer test per event site. Each thread appends to its own `alignas(64)` buffer; the file is written
+  after the run's clock stops. IncrSerial's merge path has no hooks; phase 1 hooks are shared by all engines.
+- **CPU labels are samples:** `pthread_cpu_number_np` at each event's start (about 1 ns). Threads migrate freely: in a
+  probe, every one of 11 OpenMP threads ran on nearly all 11 CPUs. P/E comes from `hw.perflevel1.logicalcpu` (6) with
+  Apple's E-first numbering, which ioreg's `cluster-type` confirms here (CPUs 0–5 E, 6–10 P).
+- Overhead (mains, `wikitext.full`, 5 threads, median of 7, interleaved): trace off vs the pre-B6 binary is within noise;
+  on costs +0.0% (v32k) and +1.2% (v100k) of phase 3. **Baseline re-measured:** IncrSerial phase 3 0.601 s (v32k) and
+  0.887 s (v100k); incr-batch 0.360 s and 0.645 s, as in S8. No S8 rerun.
+- What a 5-thread v32k trace shows: 19,888 SELECTs average 3.6 µs; phase 3 busy time is 304 ms on the master and about
+  124 ms on each worker, so the master's serial work bounds the speedup. At 5 threads the samples were almost all P-cores
+  (OWNER_MERGE E-share 0–3%).
+- 90/90 in Release and Debug. Matrix 0 mismatches on both slices. Mutations: 4 of 4 caught (one after adding a test
+  for a run that exhausts its pairs).
+- `scripts/trace_summary.py` validates a trace and prints the per-kind table.
+
+**Next task:** B7 (ParaBPE Studio). Load the `dataviz` skill first. Timing runs **need the Mac on mains power and
 awake**: `.venv/bin/python -I bench/run_bench.py bench/configs/<name>.yaml --require-ac`, then
 `bench/plot.py results/*.csv --out-dir results/plots`.
 

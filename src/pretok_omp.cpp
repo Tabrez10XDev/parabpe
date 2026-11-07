@@ -10,6 +10,7 @@
 
 #include "parabpe/regex.hpp"
 #include "strategies.hpp"
+#include "trace.hpp"
 
 namespace parabpe::detail {
 namespace {
@@ -67,6 +68,12 @@ class OmpPreTokenizer final : public PreTokenizer {
 #pragma omp for schedule(dynamic, 1)
       for (int u = 0; u < n_units; ++u) {
         if (!matcher) continue;
+        TraceSpan span(TraceKind::PretokUnit);
+        if (span.on()) {
+          size_t bytes = 0;
+          for (std::string_view doc : units[u].docs) bytes += doc.size();
+          span.set_arg(bytes);
+        }
         try {
           for (std::string_view doc : units[u].docs) {
             matcher->for_each_match(doc, [&](std::string_view word) {
@@ -81,12 +88,16 @@ class OmpPreTokenizer final : public PreTokenizer {
 
       if (critical) {
 #pragma omp critical(parabpe_pretok_merge)
-        for (const auto& [word, n] : mine.buckets[0]) global[word] += n;
+        {
+          const TraceSpan span(TraceKind::ShardReduce, 0);
+          for (const auto& [word, n] : mine.buckets[0]) global[word] += n;
+        }
       } else {
 #pragma omp single
         shards.resize(n_buckets);  // implicit barrier
 #pragma omp for schedule(dynamic, 1)
         for (unsigned b = 0; b < n_buckets; ++b) {
+          const TraceSpan span(TraceKind::ShardReduce, b);
           WordMap& shard = shards[b].words;
           shard = std::move(locals[0].buckets[b]);
           for (int t = 1; t < n_threads; ++t) {

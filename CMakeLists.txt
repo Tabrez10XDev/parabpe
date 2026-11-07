@@ -94,6 +94,7 @@ add_library(parabpe_core
   src/merge_batch.cpp
   src/strategies.cpp
   src/io.cpp
+  src/trace.cpp
   src/trainer.cpp
 )
 target_include_directories(parabpe_core PUBLIC include PRIVATE src)
@@ -114,6 +115,7 @@ add_executable(parabpe_tests
   tests/unit/test_golden.cpp
   tests/unit/test_io.cpp
   tests/unit/test_batch.cpp
+  tests/unit/test_trace.cpp
 )
 target_link_libraries(parabpe_tests PRIVATE parabpe_core GTest::gtest_main)
 target_include_directories(parabpe_tests PRIVATE src)

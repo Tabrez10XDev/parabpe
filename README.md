@@ -40,6 +40,7 @@ Sanitizer builds: `-DPARABPE_ASAN=ON`, or `-DPARABPE_TSAN=ON` (use clang with LL
 | `--par-threshold-tokens` | IncrPar, incr-batch: minimum tokens touched in a step before the work is split across threads |
 | `--verify-batches` | incr-batch: check every member against a sequential oracle |
 | `--batch-full-rounds` | incr-batch: batch every round, even ones too small to go parallel (the span figures) |
+| `--trace FILE` | Chrome Trace Event JSON of phases 1 and 3 per thread, with the sampled CPU and P/E core; open in ui.perfetto.dev, summarise with `scripts/trace_summary.py` |
 
 ## Layout
 
@@ -77,5 +78,6 @@ report/            LaTeX report
 | B5 | Owner-map ablation | ✅ |
 | N6 | Related work | ✅ |
 | S8 | Benchmarks | ✅ `results/`, `results/plots/` |
-| B6–B7 | Trace, ParaBPE Studio | ⬜ |
+| B6 | `--trace` (Chrome Trace JSON) | ✅ |
+| B7 | ParaBPE Studio | ⬜ |
 | S9 | Report | ⬜ |

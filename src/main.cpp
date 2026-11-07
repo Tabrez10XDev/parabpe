@@ -83,7 +83,7 @@ int main(int argc, char** argv) {
                  "incr-batch: tie-group entries scanned per round");
   tr->add_flag("!--batch-full-rounds", cfg.batch_skip_small,
                "incr-batch: batch every round, even ones too small to go parallel (span figures)");
-  tr->add_option("--trace", cfg.trace_path, "Write a Chrome Trace JSON file");
+  tr->add_option("--trace", cfg.trace_path, "Write a Chrome Trace Event JSON file (ui.perfetto.dev)");
   auto* special_opt = tr->add_option("--special", specials,
                                      "Special token, repeatable (default: <|endoftext|>)")
                           ->allow_extra_args(false);

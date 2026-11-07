@@ -9,6 +9,7 @@
 #include "batch_select.hpp"
 #include "incr_common.hpp"
 #include "strategies.hpp"
+#include "trace.hpp"
 
 namespace parabpe::detail {
 namespace {
@@ -62,6 +63,7 @@ void sweep_zero_pairs(std::vector<Owner>& owners, std::vector<PairKey>& zero, in
   const int n_owners = static_cast<int>(owners.size());
 #pragma omp parallel for schedule(dynamic, 1) num_threads(threads)
   for (int o = 0; o < n_owners; ++o) {
+    const TraceSpan span(TraceKind::ZeroSweep, static_cast<uint64_t>(o));
     for (const PairKey k : zero) owners[o].index.erase(k);
   }
   zero.clear();
@@ -227,6 +229,7 @@ class BatchEngine final : public MergeEngine {
       const size_t budget = cfg.batch_skip_small && !par ? 1 : left;
       const size_t k = select_round(heap, budget, cfg.batch_scan_cap, worth_batching);
       stats_.select_s += omp_get_wtime() - t_select;
+      trace_since(TraceKind::Select, t_select, k);
       if (k == 0) break;  // nothing left to merge
       record_round(k);
 
@@ -244,6 +247,7 @@ class BatchEngine final : public MergeEngine {
       batch.assign(std::span(prefix_).first(k), z_first, token_bytes_.size(), round);
 
       double t_order = 0;
+      const uint64_t changed_before = stats_.changed_pairs;
       if (par &&
           reaches_threshold(table, owners, std::span(prefix_).first(k), cfg.par_threshold_tokens)) {
         ++stats_.parallel_rounds;
@@ -259,9 +263,11 @@ class BatchEngine final : public MergeEngine {
           zero.insert(zero.end(), sd.zero.begin(), sd.zero.end());
         }
       } else {
+        TraceSpan apply(TraceKind::SerialApply, k);
         delta.clear();
         const auto add = [&delta](PairKey key, int64_t d) { delta[key] += d; };
         for (Owner& owner : owners) merge_owner_batch(table, owner, batch, add);
+        apply.end();
         t_order = omp_get_wtime();
         for (const auto& [key, d] : delta) {
           if (d == 0) continue;
@@ -279,6 +285,7 @@ class BatchEngine final : public MergeEngine {
       }
       if (heap.size() > 4 * counts.size()) heap.rebuild();
       stats_.order_s += omp_get_wtime() - t_order;
+      trace_since(TraceKind::OrderUpdate, t_order, stats_.changed_pairs - changed_before);
       if (zero.size() >= kZeroSweepPairs) sweep_zero_pairs(owners, zero, cfg.threads);
     }
     if (oracle && merges.size() < n_merges) check_exhausted(*oracle);

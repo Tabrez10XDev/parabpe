@@ -6,6 +6,7 @@
 #include "parabpe/io.hpp"
 #include "parabpe/merge_engine.hpp"
 #include "parabpe/pretokenizer.hpp"
+#include "trace.hpp"
 
 namespace parabpe {
 namespace {
@@ -27,6 +28,7 @@ class Laps {
 TrainResult run_pipeline(std::string_view text, const TrainConfig& cfg, double t0,
                          double chunk_extra) {
   omp_set_num_threads(cfg.threads);
+  detail::TraceSession trace(cfg.trace_path, cfg.threads);
   TrainResult r;
   WordCounts counts = count_words(text, cfg, &r.timings);
   r.timings.chunk += chunk_extra;
@@ -40,6 +42,7 @@ TrainResult run_pipeline(std::string_view text, const TrainConfig& cfg, double t
   r.stats = engine->stats();
   r.vocab = build_vocab(r.merges, cfg.special_tokens);
   r.timings.total = omp_get_wtime() - t0;
+  trace.finish();  // after the clock stops: writing the file is not part of the run
   return r;
 }
 
@@ -52,7 +55,9 @@ WordCounts count_words(std::string_view text, const TrainConfig& cfg, PhaseTimin
   Laps laps(omp_get_wtime());
   // The OMP pipeline also chunks in parallel (S10); --pretok serial keeps the serial chunker.
   const int chunk_threads = cfg.pretok == PretokStrategy::OMP ? cfg.threads : 1;
+  detail::TraceSpan chunk(detail::TraceKind::Chunk, text.size());
   const auto units = make_work_units(text, cfg.special_tokens, cfg.work_unit_bytes, chunk_threads);
+  chunk.end();
   laps.lap(out.chunk);
   WordCounts counts = make_pretokenizer(cfg.pretok)->run(units, cfg);
   laps.lap(out.pretok);

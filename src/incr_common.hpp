@@ -13,6 +13,7 @@
 #include <vector>
 
 #include "bpe_common.hpp"
+#include "trace.hpp"
 
 namespace parabpe::detail {
 
@@ -269,12 +270,14 @@ void parallel_step(WordTable& table, std::vector<Owner>& owners, ShardedCounts& 
 
 #pragma omp for schedule(dynamic, 1)
     for (int o = 0; o < n_owners; ++o) {
+      const TraceSpan span(TraceKind::OwnerMerge, static_cast<uint64_t>(o));
       merge(table, owners[o],
             [&mine, &counts](PairKey k, int64_t d) { mine.buckets[counts.shard_of(k)][k] += d; });
     }  // implicit barrier: every delta is buffered
 
 #pragma omp for schedule(dynamic, 1)
     for (int s = 0; s < n_shards; ++s) {
+      const TraceSpan span(TraceKind::ShardReduce, static_cast<uint64_t>(s));
       ShardDelta& sd = shard_delta[s];
       sd.sum.clear();
       sd.push.clear();
@@ -301,6 +304,7 @@ void parallel_step(WordTable& table, std::vector<Owner>& owners, ShardedCounts& 
     if (erase_zero_pairs) {
 #pragma omp for schedule(dynamic, 1)
       for (int o = 0; o < n_owners; ++o) {
+        const TraceSpan span(TraceKind::ZeroSweep, static_cast<uint64_t>(o));
         for (const ShardDelta& sd : shard_delta) {
           for (const PairKey k : sd.zero) owners[o].index.erase(k);
         }
