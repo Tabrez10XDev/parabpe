@@ -1,0 +1,10 @@
+# Large inputs: full TinyStories (2.2 GB) and six copies of wikitext.full (3.2 GB, scripts/run_s8.sh
+# builds both). The copies add bytes but no unique words, so wikitext.x6 tests phase 1 and repeated
+# counts, not a larger vocabulary of words. Fewer threads and reps: each run is long.
+inputs: [data/tinystories.full.txt, data/wikitext.x6.txt]
+threads: [1, 5, 11]
+pretok: [omp]
+merge: [incr-serial, incr-par, incr-batch]
+vocab_size: [32000, 100000]
+baseline: true
+reps: 3

@@ -331,9 +331,13 @@ paper in full.
 ### S8: Full benchmarks (needs mains power)
 `bench/configs/batch.yaml`: incr-serial, incr-par, incr-batch × omp × threads {1,2,3,4,5,6,8,11} × {wikitext.full,
 tinystories.1G} × vocab {32000, 100000}. `bench/configs/scale.yaml`: full TinyStories (2.2 GB) and 3.2 GB WikiText. Also
-main, naive, reduce, threshold and weak, all with `--require-ac`, plus the HF comparison again on mains power. Extend
+main, naive, reduce, threshold, weak, plus `owners`, `owner_load` and `span`, all with `--require-ac`, plus the HF comparison again on mains power. Extend
 `run_bench.py` (`PARALLEL`, the threshold rule in `grid()`, `rounds`/`max_batch`, `owner_map` for the B5 ablation) and `plot.py` (`STRATEGY_COLORS`, span
 chart, batch-size histogram). Commit `results/`. See also `docs/PLAN.md` §6.
+
+**Tooling done, runs not started.** Run `bench/configs/b4_sweep.yaml` and `bench/kill_check.py` first and set the defaults,
+then `scripts/run_s8.sh`, then `scripts/run_s8.sh --clean`. "3.2 GB WikiText" wasn't defined anywhere: it is six copies of
+`wikitext.full` (`wikitext.x6`), which adds bytes but no unique words, so don't present it as a bigger vocabulary test.
 
 ### B6: Trace
 `--trace FILE` writes Chrome Trace Event JSON from per-thread `alignas(64)` holders: zero cost off, under 2% on. Kinds:

@@ -1,0 +1,9 @@
+# B5 ablation, load: busiest/mean owner. --owner-stats slows the run, so only the ratio is used.
+inputs: [data/wikitext.full.txt, data/tinystories.1G.txt]
+threads: [2, 5, 11]
+pretok: [omp]
+merge: [incr-par]
+owner_map: [contiguous, hashed]
+owner_stats: [true]
+vocab_size: [32000, 100000]
+reps: 1

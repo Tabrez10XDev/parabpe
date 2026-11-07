@@ -1,0 +1,9 @@
+# S8 headline grid: the three incremental engines on the two largest everyday corpora.
+# Threads 1-5 = P-cores only, 6-11 = E-cores join (report the two regions separately).
+inputs: [data/wikitext.full.txt, data/tinystories.1G.txt]
+threads: [1, 2, 3, 4, 5, 6, 8, 11]
+pretok: [omp]
+merge: [incr-serial, incr-par, incr-batch]
+vocab_size: [32000, 100000]
+baseline: true
+reps: 5

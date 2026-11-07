@@ -1,0 +1,9 @@
+# Span: batched rounds with every round batched (--batch-full-rounds). These counts must never be
+# quoted next to a speedup from a default run, which skips small rounds.
+inputs: [data/tinystories.100M.txt, data/tinystories.1G.txt, data/wikitext.100M.txt, data/wikitext.full.txt]
+threads: [5]
+pretok: [omp]
+merge: [incr-batch]
+full_rounds: [true]
+vocab_size: [32000, 100000]
+reps: 1

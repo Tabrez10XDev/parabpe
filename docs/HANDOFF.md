@@ -330,6 +330,19 @@ parallelise the merge step, so the report may not say "first batched" or "first 
 merges per parallel round with a proof that the merge list, order included, is byte-identical to sequential training.
 BatchBPE's README says its merge order differs. Use the wording in the note. S9 follow-ups are on the card.
 
+### S8 tooling (2026-11-07, no benchmark results yet)
+- `run_bench.py`: incr-batch, `owner_map`, `owners_per_thread`, `full_rounds`, `owner_stats`, `baseline`, round and load
+  columns. Power is read before every run. Stalled runs are repeated. The CSV header changed; no old results existed.
+- `plot.py`: every row has a `kind`, and only `main` rows reach headline charts, replacing a hardcoded threshold of 4096
+  that would have hidden incr-batch. New charts: span, batch sizes, owner maps. End labels no longer collide.
+- `bench/kill_check.py` prints the sweep and verdict, and exits 2 rather than give a verdict on battery data.
+- `scripts/run_s8.sh` runs everything after the sweep. Estimate about 2¼ hours, plan for 3.
+- Tested end to end on the 10 MB slices only. Those numbers were throwaway and are not in the repo.
+- **The Mac idle-slept on battery during timing runs even under `caffeinate -i`** (`Maintenance Sleep` / `Idle Sleep` in
+  `pmset -g log`): 6 s runs took up to 15 minutes of wall time. Not yet seen on mains, where `run_bench.py` adds `-s`.
+  Check the "stalled runs" count at the end of each config.
+- Palette: 8 slots pass. incr-par vs incr-batch is ΔE 6.9 (deutan), legal with their different marker shapes.
+
 **Next task:** finish B4 on mains power: `owners_per_thread` {1,2,4} and threshold {1k,4k,16k,64k} sweep, then the kill check.
 After that comes S8. B4's kill check and S8 **need the Mac on mains power and
 awake**: `.venv/bin/python -I bench/run_bench.py bench/configs/<name>.yaml --require-ac`, then

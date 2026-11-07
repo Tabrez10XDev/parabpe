@@ -1,0 +1,11 @@
+# B4: incr-batch owners x threshold on wikitext.full, for the defaults and the kill check.
+#   .venv/bin/python -I bench/run_bench.py bench/configs/b4_sweep.yaml --require-ac
+#   .venv/bin/python -I bench/kill_check.py results/b4_sweep.csv
+inputs: [data/wikitext.full.txt]
+threads: [5, 11]
+pretok: [omp]
+merge: [incr-serial, incr-batch]
+owners_per_thread: [1, 2, 4]
+par_threshold_tokens: [1024, 4096, 16384, 65536]
+vocab_size: [32000, 100000]
+reps: 3
