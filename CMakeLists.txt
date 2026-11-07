@@ -131,4 +131,7 @@ if(Python3_FOUND)
                    --input ${CMAKE_SOURCE_DIR}/data/tinystories.10M.txt --vocab-size 4000
                    --binary $<TARGET_FILE:parabpe>)
   set_tests_properties(equivalence_matrix PROPERTIES LABELS slow SKIP_RETURN_CODE 77 TIMEOUT 1800)
+  # Studio server (B7): input confinement and request checks; no training runs.
+  add_test(NAME studio_serve
+           COMMAND ${Python3_EXECUTABLE} -I ${CMAKE_SOURCE_DIR}/tests/studio/test_serve.py)
 endif()

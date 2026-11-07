@@ -3,6 +3,7 @@
 held-out text to exactly the token ids that bpe_ref.encode produces from the same merges.
 
   .venv/bin/python tests/interop/check_hf.py --model runs/x --heldout data/wikitext.10M.txt [--max-bytes 1000000]
+  .venv/bin/python tests/interop/check_hf.py --model runs/x --text "Hello world"   # one JSON line (Studio)
 
 (A decode/encode round trip alone always passes for byte-level BPE, so token ids are compared.)
 Exit code 0 = identical ids, 1 = mismatch.
@@ -55,14 +56,19 @@ def first_mismatch(xs, ys):
 def main():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawTextHelpFormatter)
     ap.add_argument("--model", type=Path, required=True, help="directory with merges.txt + vocab.json")
-    ap.add_argument("--heldout", type=Path, required=True, help="UTF-8 text to encode")
+    src = ap.add_mutually_exclusive_group(required=True)
+    src.add_argument("--heldout", type=Path, help="UTF-8 text to encode")
+    src.add_argument("--text", help="encode this string and print the tokens as one JSON line")
     ap.add_argument("--max-bytes", type=int, default=1_000_000)
     args = ap.parse_args()
 
     from tokenizers import ByteLevelBPETokenizer
 
     merges, vocab = load_model(args.model)
-    raw = args.heldout.read_bytes()[: args.max_bytes]
+    if args.text is not None:
+        raw = args.text.encode("utf-8")[: args.max_bytes]
+    else:
+        raw = args.heldout.read_bytes()[: args.max_bytes]
     text = raw.decode("utf-8", errors="ignore")  # drop a character cut in half at the end
 
     hf = ByteLevelBPETokenizer(str(args.model / "vocab.json"), str(args.model / "merges.txt"),
@@ -71,6 +77,11 @@ def main():
     ref_ids = bpe_ref.encode(text, merges, vocab)
 
     i = first_mismatch(hf_ids, ref_ids)
+    if args.text is not None:
+        ok = i is None and hf.decode(hf_ids) == text
+        print(json.dumps({"ok": ok, "ids": hf_ids, "ref_ids": ref_ids,
+                          "tokens": [hf.id_to_token(t) for t in hf_ids]}, ensure_ascii=False))
+        return 0 if ok else 1
     if i is not None:
         print(f"MISMATCH at token {i}: hf={hf_ids[i:i + 8]} ref={ref_ids[i:i + 8]}")
         print("  hf  :", [hf.id_to_token(t) for t in hf_ids[max(0, i - 3):i + 5]])

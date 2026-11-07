@@ -1,0 +1,124 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>ParaBPE Studio</title>
+<link rel="stylesheet" href="studio.css">
+</head>
+<body>
+<header class="top">
+  <div>
+    <h1>ParaBPE Studio</h1>
+    <p class="sub">Exact parallel BPE training: watch a traced run, check it against IncrSerial, compare engines.</p>
+  </div>
+  <button id="theme" class="ghost" type="button" aria-label="Switch light or dark theme">Theme</button>
+</header>
+
+<main>
+  <section class="card" aria-labelledby="run-h">
+    <h2 id="run-h">Train</h2>
+    <form id="run-form" class="controls">
+      <label>Input <select id="input"></select></label>
+      <label>Vocab <select id="vocab">
+        <option value="32000">32,000</option><option value="100000">100,000</option>
+        <option value="4000">4,000</option></select></label>
+      <label>Threads <select id="threads"></select></label>
+      <label>Engine <select id="merge">
+        <option value="incr-batch">incr-batch</option><option value="incr-par">incr-par</option>
+        <option value="incr-serial">incr-serial</option></select></label>
+      <label class="check"><input type="checkbox" id="full-rounds"> batch every round (span figures)</label>
+      <button id="run-btn" type="submit">Train with trace</button>
+    </form>
+    <p id="run-status" class="status" role="status"></p>
+  </section>
+
+  <section class="card" aria-labelledby="replay-h">
+    <div class="row-head">
+      <h2 id="replay-h">Replay</h2>
+      <p id="run-label" class="muted"></p>
+    </div>
+    <div class="tiles">
+      <div class="tile"><span class="tile-label">Merges</span><span id="t-merges" class="tile-value">–</span></div>
+      <div class="tile"><span class="tile-label">Rounds</span><span id="t-rounds" class="tile-value">–</span></div>
+      <div class="tile"><span class="tile-label">This round</span><span id="t-round" class="tile-value">–</span></div>
+      <div class="tile badge-tile"><span class="tile-label">Exactness</span>
+        <span id="badge" class="badge pending" role="status"><span class="badge-icon" aria-hidden="true">…</span><span class="badge-text">no run yet</span></span>
+        <span id="badge-detail" class="muted small"></span></div>
+    </div>
+    <div class="controls replay-controls">
+      <button id="play" type="button" disabled>Play</button>
+      <button id="restart" class="ghost" type="button" disabled>Restart</button>
+      <label>Speed <select id="speed">
+        <option value="auto" selected>fit to 20 s</option><option value="1">real time</option>
+        <option value="0.1">1/10×</option><option value="0.03333">1/30×</option>
+        <option value="0.01">1/100×</option><option value="0.001">1/1000×</option></select></label>
+      <label>View <select id="view">
+        <option value="all">whole run</option><option value="p3">phase 3 (merges)</option></select></label>
+      <span id="clock" class="muted tabular"></span>
+    </div>
+    <div id="legend" class="legend" aria-label="Swimlane legend"></div>
+    <div class="lanes-wrap">
+      <canvas id="lanes" role="img" aria-label="Per-thread swimlanes of the traced run"></canvas>
+      <div id="tip" class="tip" hidden></div>
+    </div>
+    <p class="muted small">Each lane is one OpenMP thread. The badge gives the share of its traced time sampled on
+      performance (P) or efficiency (E) cores; the thin strip under a lane marks E-core samples. The core is read once
+      at each event's start (macOS cannot pin threads), so these are samples, not placements.</p>
+    <details class="table-view"><summary>Table: time per event kind</summary><div id="kind-table"></div></details>
+  </section>
+
+  <section class="grid2">
+    <div class="card" aria-labelledby="feed-h">
+      <h2 id="feed-h">Merges landing</h2>
+      <p class="muted small">Newest round first. Tokens use GPT-2's byte mapping (Ġ is a space, Ċ a newline).</p>
+      <div id="feed" class="feed"></div>
+    </div>
+    <div class="card" aria-labelledby="span-h">
+      <h2 id="span-h">Span</h2>
+      <p class="muted small">Merges done against rounds taken. Sequential BPE needs one step per merge (the diagonal).</p>
+      <div id="span"></div>
+    </div>
+  </section>
+
+  <section class="card" aria-labelledby="bench-h">
+    <h2 id="bench-h">Benchmarks <span class="muted small">(results/*.csv, mains power, median)</span></h2>
+    <div class="controls"><label>Corpus <select id="bench-input"></select></label>
+      <label>Vocab <select id="bench-vocab"></select></label></div>
+    <div class="grid3">
+      <figure><figcaption>Amdahl: pre-tokenizing scales, the merge chain doesn't</figcaption><div id="c-amdahl"></div></figure>
+      <figure><figcaption>Phase 3 speedup vs IncrSerial</figcaption><div id="c-phase3"></div></figure>
+      <figure><figcaption>Owner load, busiest ÷ mean (lower is better)</figcaption><div id="c-load"></div></figure>
+    </div>
+    <p class="muted small">Threads 1–5 use the P-cores only; from 6 the E-cores join (shaded). Speedups are against
+      IncrSerial at 1 thread.</p>
+  </section>
+
+  <section class="grid2">
+    <div class="card theorem" aria-labelledby="thm-h">
+      <h2 id="thm-h">Why a batch is exact</h2>
+      <p>Sort the live pairs best-first. Take the longest prefix <i>p</i>[0..<i>K</i>) of pairwise token-disjoint pairs.
+        Let <i>c</i>* be the count of its last member, <i>T</i> the pairs tied at <i>c</i>* after it,
+        <i>g</i> the members counted above <i>c</i>*, and <i>j</i> the first member sharing a token with <i>T</i>.</p>
+      <p class="formula"><i>k</i> = max(min(<i>K</i>, <i>j</i> + 1), <i>g</i>, 1)</p>
+      <p><b>Theorem.</b> From any training state, the next <i>k</i> merges of sequential BPE are exactly
+        <i>p</i>[0], …, <i>p</i>[<i>k</i>−1], in that order. So one parallel round gives the same
+        <code>merges.txt</code>, byte for byte.</p>
+      <p class="muted small">Proof: merging never raises an old pair's count (Lemma 1), disjoint merges don't interact
+        (Lemma 2), then induction on <i>i</i>. Full proof and counterexamples: docs/notes/batched_merging.md.</p>
+    </div>
+    <div class="card" aria-labelledby="hf-h">
+      <h2 id="hf-h">Load into Hugging Face tokenizers</h2>
+      <form id="hf-form" class="controls">
+        <label class="grow">Sentence <input id="hf-text" type="text" maxlength="1000"
+          value="Parallel BPE training is exact, byte for byte."></label>
+        <button id="hf-btn" type="submit" disabled>Encode</button>
+      </form>
+      <p id="hf-status" class="status" role="status"></p>
+      <div id="hf-tokens" class="chips"></div>
+    </div>
+  </section>
+</main>
+<script src="studio.js"></script>
+</body>
+</html>

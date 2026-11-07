@@ -366,9 +366,11 @@ Phase 3 speedup vs IncrSerial, `owners_per_thread=1`, median of 3:
 All configs ran: 2,232 rows, 0 stalled, 0 failed, 0 on battery. **Every row for a given (input, vocab) has the same
 `merges_sha256`**, across engines, pre-tokenizers and threads. Results in `results/*.csv`, charts and `summary.md` in
 `results/plots/`, HF profiles in `results/profile_*.md`. The temporary corpora are deleted.
-- **Phase 3 vs IncrSerial (`batch.csv`, median of 5):** wikitext.full v32k: incr-batch 1.65× at 5 threads, 1.40× at 11;
-  incr-par 1.17× / 0.97×. v100k: 1.36× / 1.15×; incr-par 1.10× / 0.94×. The B4 sweep's 1.83× came with a slower
-  IncrSerial run (0.636 s against 0.593 s here); incr-batch itself took the same time. **Quote the S8 figures.**
+- **Phase 3 vs IncrSerial (`batch.csv`, median of 5, baseline = serial/incr-serial at 1 thread as in `plot.py`):**
+  wikitext.full v32k: incr-batch 1.63× at 5 threads, 1.38× at 11; incr-par 1.15× / 0.96×. v100k: incr-batch 1.31× /
+  1.11×; incr-par 1.07× / 0.91×. (The S8 commit message and an earlier draft of this note said 1.65× / 1.36×: those used
+  the median of every IncrSerial row as the baseline. Quote the figures here, which match the plots and the Studio.)
+  The B4 sweep's 1.83× came with a slower IncrSerial run; incr-batch itself took the same time.
 - TinyStories phase 3 is about 50–90 ms, so no engine gains there: incr-batch is 0.97–1.01× at 3–5 threads and 0.76× at 11.
 - **Total vs serial IncrSerial at 1 thread:** wikitext.full v32k 3.40× (5 threads) and 3.91× (11); tinystories.1G 4.44×
   and 6.23×. Phase 1 dominates, so totals track the pre-tokenizer.
@@ -400,7 +402,26 @@ All configs ran: 2,232 rows, 0 stalled, 0 failed, 0 on battery. **Every row for 
   for a run that exhausts its pairs).
 - `scripts/trace_summary.py` validates a trace and prints the per-kind table.
 
-**Next task:** B7 (ParaBPE Studio). Load the `dataviz` skill first. Timing runs **need the Mac on mains power and
+### B7 (2026-11-07)
+- `python3 -I studio/serve.py`, then http://127.0.0.1:8765/. It trains with `--trace` into `runs/studio/<id>/`, and
+  caches the IncrSerial reference per input and vocab in `runs/studio/ref/`. `#end&p3&light` in the URL gives a still.
+- Safety: bound to 127.0.0.1, Host header must be 127.0.0.1/localhost (DNS rebinding), POSTs must be JSON, inputs are
+  `*.txt` directly under `data/` after `resolve()` (no traversal, no symlinks out), run ids and CSV names are
+  regex-checked, every subprocess is an argument list.
+- `HTTPServer.server_bind` does a reverse DNS lookup that stalled 35 s on this network; `serve.Server` skips it.
+- Viewer: swimlanes coloured by kind of work (palette slots 1–5), P/E badge per lane = share of traced time sampled on
+  each core type, E-core strip, hover per event, table view. Merges land when a round's ORDER_UPDATE ends. Span curve,
+  exactness badge (shown when the replay reaches the end of phase 3), Amdahl / phase-3 / owner-load charts with the
+  same baseline as `plot.py`, theorem card, HF encode panel.
+- Demo run (wikitext.full v32k, 11 threads): identical to IncrSerial; default mode 19,888 rounds, full rounds 2,561
+  (12.4× fewer, max 59). At 11 threads, 6 of the 11 lanes were sampled almost entirely on E-cores during phase 3.
+- **Contradictions with the draft demo script**, recorded in `docs/notes/demo.md`: phase 1 is 5.1× on wikitext.full
+  (the 7× was tinystories.1G in S4; S8 gives 6.4×); 2,561 rounds, not 3,409.
+- **Baseline correction:** the S8 notes first quoted phase-3 speedups against the median of every IncrSerial row. The
+  plots use serial/incr-serial at 1 thread; the S8 section above now uses that (incr-batch 1.63× at 5 threads, v32k).
+
+**Next task:** S9 (report). Ask before installing a TeX toolchain. Before writing: check BatchBPE §3.6 against its PDF
+and read the two-phase BoundlessBPE paper in full (N6 follow-ups). Timing runs **need the Mac on mains power and
 awake**: `.venv/bin/python -I bench/run_bench.py bench/configs/<name>.yaml --require-ac`, then
 `bench/plot.py results/*.csv --out-dir results/plots`.
 

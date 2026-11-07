@@ -42,6 +42,17 @@ Sanitizer builds: `-DPARABPE_ASAN=ON`, or `-DPARABPE_TSAN=ON` (use clang with LL
 | `--batch-full-rounds` | incr-batch: batch every round, even ones too small to go parallel (the span figures) |
 | `--trace FILE` | Chrome Trace Event JSON of phases 1 and 3 per thread, with the sampled CPU and P/E core; open in ui.perfetto.dev, summarise with `scripts/trace_summary.py` |
 
+## ParaBPE Studio
+
+```bash
+python3 -I studio/serve.py      # then open http://127.0.0.1:8765/
+```
+
+Trains a run with `--trace` on a corpus in `data/`, replays it per thread with P/E-core samples, shows each round's
+merges landing and the span curve, checks `merges.txt` against an IncrSerial reference (sha256), plots
+`results/*.csv`, and encodes a sentence with Hugging Face `tokenizers` (needs `.venv`). It listens on 127.0.0.1 only and
+accepts only `*.txt` files directly under `data/`. The demo script is in [docs/notes/demo.md](docs/notes/demo.md).
+
 ## Layout
 
 ```
@@ -50,7 +61,8 @@ src/               implementations, one file per strategy
 reference/         Python oracle (bpe_ref.py), the spec-exact reference for tiny corpora
 tests/             unit/, equivalence/ (strategy × threads), golden/
 bench/             run_bench.py, plot.py, configs/
-scripts/           data download + slicing, profiling spike
+scripts/           data download + slicing, profiling spike, trace_summary.py
+studio/            ParaBPE Studio (serve.py + a no-build viewer)
 report/            LaTeX report
 ```
 
@@ -79,5 +91,5 @@ report/            LaTeX report
 | N6 | Related work | ✅ |
 | S8 | Benchmarks | ✅ `results/`, `results/plots/` |
 | B6 | `--trace` (Chrome Trace JSON) | ✅ |
-| B7 | ParaBPE Studio | ⬜ |
+| B7 | ParaBPE Studio | ✅ `studio/`, demo in `docs/notes/demo.md` |
 | S9 | Report | ⬜ |

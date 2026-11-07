@@ -365,6 +365,12 @@ No S8 rerun needed. The trace file is written after the clock stops: 10 MB at v3
 Replay with swimlanes and P/E badges, merges landing per round, a merges/rounds counter and span curve, an exactness badge
 (sha256 against IncrSerial), and speedup charts from `results/*.csv`.
 
+**Done (2026-11-07).** `studio/serve.py` (stdlib, 127.0.0.1, Host guard, JSON-only POSTs, inputs confined to
+`data/*.txt`, argument lists only), `studio/index.html` + `studio.js` + `studio.css` (canvas swimlanes, SVG charts with
+hover and table views, light and dark palettes validated). `check_hf.py --text` encodes one sentence for the HF panel.
+`tests/studio/test_serve.py` (ctest `studio_serve`, 9 tests; 3 of 3 guard mutations caught). Demo script with measured
+numbers: `docs/notes/demo.md`. Rehearsing the demo twice is the student's.
+
 ### S9: Report
 Title: *ParaBPE: Provably Exact Parallel BPE Training — Batched Merges That Break the Sequential Chain.* `report/report.tex`;
 every number traced to `results/`. See also `docs/PLAN.md` §9.
