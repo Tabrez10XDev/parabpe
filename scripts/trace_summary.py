@@ -19,6 +19,7 @@ import sys
 
 KINDS = ["CHUNK", "PRETOK_UNIT", "SHARD_REDUCE", "SELECT", "SERIAL_APPLY", "OWNER_MERGE",
          "ZERO_SWEEP", "ORDER_UPDATE"]
+PHASE3 = ("OWNER_MERGE", "SERIAL_APPLY", "SELECT", "ORDER_UPDATE", "ZERO_SWEEP")
 EPS_US = 0.01  # timestamps are printed to 1 ns; allow rounding when checking nesting
 
 
@@ -80,11 +81,18 @@ def summarise(trace, spans):
         lines.append(f"| {name} | {n} | {us / 1000:.1f} | {us / n:.1f} | {share} |")
     busy = collections.Counter()
     for e in spans:
-        if e["name"] in ("OWNER_MERGE", "SERIAL_APPLY", "SELECT", "ORDER_UPDATE", "ZERO_SWEEP"):
+        if e["name"] in PHASE3:
             busy[e["tid"]] += e["dur"]
     if busy:
         lines += ["", "Phase 3 busy time per thread (ms): "
                   + ", ".join(f"t{t} {busy[t] / 1000:.1f}" for t in sorted(busy))]
+        if labelled:
+            e_busy = collections.Counter()
+            for e in spans:
+                if e["name"] in PHASE3 and e.get("args", {}).get("core") == "E":
+                    e_busy[e["tid"]] += e["dur"]
+            lines += ["", "Phase 3 E-core share per thread: "
+                      + ", ".join(f"t{t} {100 * e_busy[t] / busy[t]:.0f}%" for t in sorted(busy))]
     return "\n".join(lines)
 
 

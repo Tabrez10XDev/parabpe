@@ -1,3 +1,5 @@
+# Trace summary: wikitext.full, vocab 100000, 5 threads, omp, incr-batch (default mode), mains power; B6 trace runs/b6/trace_100000.json; merges.txt identical to IncrSerial.
+
 Trace: 5 threads, 273975 events. Cores: cpu < 6 is an E-core (hw.perflevel1.logicalcpu; Apple numbers E-cores first).
 
 | event | count | total ms | mean µs | E-core share |
@@ -12,3 +14,5 @@ Trace: 5 threads, 273975 events. Cores: cpu < 6 is an E-core (hw.perflevel1.logi
 | ORDER_UPDATE | 87313 | 73.3 | 0.8 | 0% |
 
 Phase 3 busy time per thread (ms): t0 559.4, t1 130.7, t2 128.5, t3 130.6, t4 128.0
+
+Phase 3 E-core share per thread: t0 0%, t1 14%, t2 0%, t3 0%, t4 0%

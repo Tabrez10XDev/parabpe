@@ -160,7 +160,8 @@ def main():
 
     # Trace (B6).
     tr = (RES / "trace_wikitext.full_v32000_t5.md").read_text(encoding="utf-8")
-    busy = dict(re.findall(r"t(\d+) ([\d.]+)", tr.split("busy time per thread (ms):")[1]))
+    busy_line = tr.split("busy time per thread (ms):")[1].splitlines()[0]
+    busy = dict(re.findall(r"t(\d+) ([\d.]+)", busy_line))
     put("traceMaster", float(busy["0"]), "{:.0f}")
     put("traceWorker", sum(float(v) for k, v in busy.items() if k != "0") / (len(busy) - 1), "{:.0f}")
     sel = re.search(r"\| SELECT \| (\d+) \| ([\d.]+) \| ([\d.]+)", tr)
