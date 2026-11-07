@@ -1,6 +1,6 @@
 # Handoff: read this first
 
-## Current state (2026-11-03)
+## Current state (2026-11-07)
 **Done:** N1 (repo skeleton), N2 (draft spec and interfaces), **N4 (Python reference + golden files)**, **N3 (data)**, **S1 (chunker + serial pre-tokenizer)** and **S2 (WordTable + NaiveSerial +
 writers + `train()`)** **S3 (IncrSerial + equivalence harness)** and **S4 (OMP pre-tokenizer + TSan CI job)**. Training works end to end
 with `--pretok serial|omp --merge naive-serial|incr-serial`; All four engines work: IncrPar has a parallel phase 2 (S5) and phase 3 (S6).
@@ -291,7 +291,7 @@ random-corpus list (oracle on) and `run_matrix.py`.
   kill check at v100k.
 - CI: B0, B1 and B2 runs are fully green, TSan included, so the existing parallel code has now been race-checked.
 
-**B4 (in progress, 2026-11-05).** The code is done; the kill check and the default sweep need mains power.
+**B4 (done 2026-11-07; code 2026-11-05).** Kill check passed on mains power; see the sweep below.
 - `partition_words_hashed` (`Owner::words`), rounds at or above `par_threshold_tokens` through the templated
   `parallel_step`, and a periodic parallel sweep of zero pairs (every 16k pairs). IncrSerial and IncrPar keep their paths.
 - **Added beyond the card: `batch_skip_small`** (default on; `--batch-full-rounds` turns it off). Rounds that can't go
@@ -343,8 +343,27 @@ BatchBPE's README says its merge order differs. Use the wording in the note. S9 
   Check the "stalled runs" count at the end of each config.
 - Palette: 8 slots pass. incr-par vs incr-batch is ΔE 6.9 (deutan), legal with their different marker shapes.
 
-**Next task:** finish B4 on mains power: `owners_per_thread` {1,2,4} and threshold {1k,4k,16k,64k} sweep, then the kill check.
-After that comes S8. B4's kill check and S8 **need the Mac on mains power and
+### B4 kill check (2026-11-07, mains power)
+`bench/configs/b4_sweep.yaml` on `wikitext.full`: 156 rows, 0 stalled, 0 failed. `bench/kill_check.py`: **PASS**.
+Phase 3 speedup vs IncrSerial, `owners_per_thread=1`, median of 3:
+
+| Threads, vocab | 1024 | **4096** | 16384 | 65536 |
+|---|---:|---:|---:|---:|
+| 5, v32k | 1.92× | **1.83×** | 1.54× | 1.32× |
+| 5, v100k | 1.37× | **1.39×** | 1.27× | 1.15× |
+| 11, v32k | 1.44× | **1.47×** | 1.33× | 1.17× |
+| 11, v100k | 1.08× | **1.20×** | 1.14× | 1.06× |
+
+- **Defaults set:** `owners_per_thread` 4 → **1** (it beat 2 and 4 in every cell). The threshold stays **4096**, shared
+  with IncrPar: 1024 wins only at 5 threads v32k. The user approved both.
+- `--verify-batches` passes with the new default at 5 and 11 threads, v32k and v100k; `merges.txt` equals IncrSerial in all four.
+- **11 threads is slower than 5 in every cell**: the E-cores hold each round back. Report P-core and E-core regions apart.
+- Noise: the largest min-max spread is 22% (incr-batch) and 12% (IncrSerial, v32k t5); others 0–2% for IncrSerial.
+- **Baseline guard:** IncrSerial phase 3 is 0.61–0.64 s at v32k, below the plan's 0.66–0.68 s. The old figure was taken
+  while the two stale ASan processes ran, so this is the cleaner baseline, not a regression. S8 re-measures it anyway.
+
+**Next task:** S8 on mains power: `scripts/run_s8.sh` (about 2¼–3 h, lid open), check the stalled counts, then
+`scripts/run_s8.sh --clean`. S8 **needs the Mac on mains power and
 awake**: `.venv/bin/python -I bench/run_bench.py bench/configs/<name>.yaml --require-ac`, then
 `bench/plot.py results/*.csv --out-dir results/plots`.
 

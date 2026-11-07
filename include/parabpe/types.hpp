@@ -52,7 +52,7 @@ struct TrainConfig {
   bool owner_stats = false;  // IncrPar: measure owner load (an extra pass over touched words)
   size_t work_unit_bytes = 1 << 20;    // fixed, independent of thread count (SPEC.md §2)
   bool verify_batches = false;         // IncrBatch: check every member against a sequential oracle
-  size_t owners_per_thread = 4;        // IncrBatch: hashed owners per thread (1 owner at 1 thread)
+  size_t owners_per_thread = 1;        // IncrBatch: hashed owners per thread (B4 sweep: 1 is best)
   size_t batch_scan_cap = 4096;        // IncrBatch: live tie-group entries scanned per round
   bool batch_skip_small = true;  // IncrBatch: a round too small to go parallel merges one pair
   std::string trace_path;        // --trace: Chrome Trace JSON output, empty = off

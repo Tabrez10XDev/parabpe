@@ -311,6 +311,11 @@ a periodic parallel sweep. Threshold sweep {1k, 4k, 16k, 64k}.
 
 Acceptance: matrix includes `incr-batch` with 0 mismatches; `--verify-batches` passes at 5 and 11 threads at v32k and v100k.
 
+**Done. Kill check passed** (2026-11-07, mains power, `results/b4_sweep.csv`, 156 rows, 0 stalled). Defaults:
+`owners_per_thread` **1** (best in every cell; the card said 4) and `par_threshold_tokens` stays **4096**. Phase 3 at 5
+threads vs IncrSerial: 1.83× at v32k, 1.39× at v100k. The best single cell is 1.92× (v32k, threshold 1024), but 4096 is
+better or tied everywhere else, notably 1.20× vs 1.08× at 11 threads v100k.
+
 ### B5: IncrPar owner-map ablation
 `--owner-map contiguous|hashed` for IncrPar (default contiguous). Log busiest-owner/mean tokens on steps ≥ 4096 in
 `MergeStats`, to measure the 2.30 → ~1.07 claim directly.

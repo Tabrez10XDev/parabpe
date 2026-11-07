@@ -214,7 +214,7 @@ about 90% of a core in the background: indicative only, not the kill check.** `m
   round count and a speedup from different modes. With full rounds and no skip, v32k measured 1.69× (5 threads, 1 owner per
   thread, threshold 4096).
 - `owners_per_thread=1` beat 4 in every run here, including at 11 threads. Serial rounds pay one index lookup per owner per
-  member. The default stays 4 until the mains sweep.
+  member. **The mains sweep confirmed it (B4, `results/b4_sweep.csv`): the default is now 1.**
 - `tinystories.1G` v32k stays below break-even: 0.93× at 5 threads (0.059 s against 0.055 s). Ties keep batches small there,
   and phase 3 is about 3% of the run.
 - The `last_touched` stamp is not needed for correctness in this engine: a rewritten word holds no member any more, so a
