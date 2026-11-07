@@ -234,6 +234,10 @@ def amdahl_plot(st, out):
 def weak_plot(df, out):
     """Phase 1 weak scaling: efficiency t(1 thread, s bytes) / t(p threads, p*s bytes)."""
     d = df[df["pretok"] == "omp"].copy()
+    # Only the weak config: other configs can land on the same bytes per thread by accident
+    # (wikitext.full at 11 threads is ~50 MB per thread) and would mix corpora into one point.
+    if "config" in d and (d["config"] == "weak").any():
+        d = d[d["config"] == "weak"]
     d["bytes_per_thread"] = (d["input_bytes"] / d["threads"] / 1e6).round(-1)
     best = None
     for bpt, g in d.groupby("bytes_per_thread"):

@@ -379,7 +379,8 @@ All configs ran: 2,232 rows, 0 stalled, 0 failed, 0 on battery. **Every row for 
 - Span (full rounds): wikitext.full 12.4× fewer steps at v32k, 4.7× at v100k; TinyStories 1.8–3.1×.
 - Owner load (hashed vs contiguous): wikitext.full 2.30 → 1.08 at T=5, 4.02 → 1.18 at T=11; tinystories.1G 2.20 → 1.18,
   3.82 → 1.41. v32k and v100k are identical because every step of ≥ 4096 tokens happens within the first 32k merges.
-- Weak scaling of phase 1 (~50 MB per thread): efficiency 0.92 at 5 threads, 0.46 at 11.
+- Weak scaling of phase 1 (~50 MB per thread): efficiency 0.92 at 5 threads, 0.57 at 11. (An earlier 0.46 came from a
+  `plot.py` bug: the weak chart also picked up wikitext.full rows, which are ~50 MB per thread at 11 threads. Fixed in S9.)
 - HF `tokenizers` on the 100M slices, 11 threads: 4.08 s (WikiText) and 4.00 s (TinyStories) against our 0.46 s and
   0.18 s. One run per row, and HF breaks ties differently, so its merge count differs slightly (see `profiling.md`).
 - The Mac left mains power once, during `scale`. The partial CSV went to `runs/` and `scale` was rerun from the start.

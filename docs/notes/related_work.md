@@ -32,7 +32,8 @@ same. So the same-tokenization claim doesn't settle ours. Order matters here bec
 - A token's id comes from its merge position, so a reordered list gives different ids and a different `vocab.json`.
   Models trained on one list can't use the other.
 - Stopping at a fixed vocabulary size cuts the list at a position, so order can decide which tokens survive. BatchBPE's
-  own §3.6 identifies a final-batch difference of this kind.
+  own §3.6 ("Repeated token pairs") identifies a difference of this kind: "the batch merging process would have only
+  this tiny difference in its vocabulary compared to the standard approach".
 - `merges.txt` can be compared by checksum against the baseline at every thread count. Exactness is this project's
   headline requirement, and that check is how it is enforced.
 
@@ -50,7 +51,7 @@ suggest the tokenization is unaffected, which fits BatchBPE's claim, while our r
 | YouTokenToMe | 1, up to 2 in flight (pipelined, not batched) | yes, workers own contiguous word slices; capped at 8 threads | tie order depends on insertion unless `DETERMINISTIC_QUEUE` is set |
 | SentencePiece | 1 | no: its thread pool only counts the initial bigrams | n/a |
 | rustbpe 0.1.0 (nanochat) | 1 | no: counting and regex are parallel, applying merges isn't | n/a |
-| Two-phase BoundlessBPE (2026) | not stated in the abstract | not stated | "identical results" to its own original, by a different route (aggregating supermerges) |
+| Two-phase BoundlessBPE (2026) | 1 per iteration (one supermerge or one ordinary merge) | no: "currently single-threaded" (§7, App. F) | "identical vocabulary and merges" to its own single-pass original; a prose argument from three preconditions plus experiments, not a formal proof |
 
 Notes:
 - **IncrPar isn't new.** One merge at a time over owned words is what HF and YouTokenToMe do. YouTokenToMe's contiguous
@@ -80,10 +81,11 @@ Notes:
 
 ## Limits of this search
 - HF, SentencePiece, YouTokenToMe and rustbpe were read from source, but through a summarising fetch, so confirm any
-  line quoted in the report. BatchBPE was read from its paper and README, not its code. **Check the §3.6 wording against
-  the PDF before quoting it.**
-- Two-phase BoundlessBPE was read at abstract level only. The full paper should be checked before S9, in case a step
-  applies several merges at once.
+  line quoted in the report. BatchBPE was read from its paper and README, not its code.
+- **Checked 2026-11-07 (S9):** BatchBPE §3.6 is titled "Repeated token pairs"; the quote above is from the arXiv HTML
+  (2408.04653). The paper never runs merges in parallel. Two-phase BoundlessBPE was read in full (arXiv HTML 2604.05192):
+  one merge per iteration, single-threaded, a proof sketch plus experiments; it does not change the claim. Its equivalence
+  is with its own single-pass original; footnote 13 notes integer ids differ in its SuperBPE comparison.
 - Matsushita and Inoguchi was read at abstract level only.
 - HF was read at the 0.23.2 release on docs.rs, not the git head.
 - English-language web search only. No patents, and nothing about closed-source trainers.
