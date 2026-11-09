@@ -144,7 +144,7 @@ def main():
         ser = med(sw, "merge_s", vocab_size=vocab, merge="incr-serial")  # as bench/kill_check.py
         bt = med(sw, "merge_s", vocab_size=vocab, merge="incr-batch", threads=5, owners_per_thread=1,
                  par_threshold_tokens=4096)
-        put(f"kill{vtag}", ser / bt)
+        put(f"killSweep{vtag}", ser / bt)
 
     # HF comparison (one run per row; see the profile files).
     for tag, f in [("wt", "profile_wikitext.md"), ("ts", "profile_tinystories.md")]:

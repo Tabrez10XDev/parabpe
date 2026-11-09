@@ -13,7 +13,9 @@ byte-identical `merges.txt` to the serial baseline, at every thread count.
 
 ## Commands
 ```bash
-cmake -B build -DCMAKE_BUILD_TYPE=Release        # configure (fetches gtest, CLI11, unordered_dense)
+scripts/build_pcre2.sh ~/pcre2                   # once: PCRE2 10.45 (Unicode 16, SPEC §2); Homebrew's is newer
+cmake -B build -DCMAKE_BUILD_TYPE=Release -DPCRE2_INCLUDE_DIR=$HOME/pcre2/include \
+  -DPCRE2_LIBRARY=$HOME/pcre2/lib/libpcre2-8.a     # configure (fetches gtest, CLI11, unordered_dense)
 cmake --build build -j                           # build
 ctest --test-dir build --output-on-failure       # test
 cmake -B build-asan -DPARABPE_ASAN=ON -DCMAKE_BUILD_TYPE=Debug   # ASan/UBSan build (hangs on this Mac: see HANDOFF)

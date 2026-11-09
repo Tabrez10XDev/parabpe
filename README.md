@@ -92,4 +92,4 @@ report/            LaTeX report
 | S8 | Benchmarks | ✅ `results/`, `results/plots/` |
 | B6 | `--trace` (Chrome Trace JSON) | ✅ |
 | B7 | ParaBPE Studio | ✅ `studio/`, demo in `docs/notes/demo.md` |
-| S9 | Report | ⬜ |
+| S9 | Report | ✅ draft: `report/report.pdf` (student review pending) |

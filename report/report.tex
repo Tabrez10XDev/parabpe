@@ -11,6 +11,7 @@
 \usepackage[hidelinks]{hyperref}
 
 \graphicspath{{../results/plots/}}
+\emergencystretch=3em  % long \texttt names can't hyphenate
 \input{numbers.tex}  % every quoted measurement; generated from results/ by report/numbers.py
 
 \newtheorem{theorem}{Theorem}
@@ -206,7 +207,7 @@ Span figures in this report come from the latter mode; speedups from the former.
 \item \textbf{Equivalence matrix.} Every pre-tokenizer $\times$ engine (plus hashed IncrPar) at threads
   $\{1,2,3,4,8,16\}$ on 10\,MB slices of both corpora must hash identically to the naive serial oracle. Zero mismatches
   after every task.
-\item \textbf{Runtime oracle.} \code{--verify-batches} runs a sequential engine alongside and checks each member of each
+\item \textbf{Runtime oracle.} \code{-{}-verify-batches} runs a sequential engine alongside and checks each member of each
   round. It passes on WikiText-103 at vocabulary 32k and 100k at 5 and 11 threads. In the unit tests it checks all three
   rules of increasing reach on 200 random corpora, and the parallel engine on 60 more at threads 2, 3, 8 and 16.
 \item \textbf{Independent replay.} \code{tools/batchsim} shares no code with the engine, re-derives the batches with an
@@ -215,7 +216,8 @@ Span figures in this report come from the latter mode; speedups from the former.
   $g$; the stopping pair left out of $T$; bytes pushed after the heap push; and more): 16 of 17 mutants were caught, the
   survivor being equivalent (it only saves a rescan).
 \item \textbf{Races.} ThreadSanitizer runs in CI (Linux), with OpenMP's runtime excluded through Archer's
-  \code{ignore\_noninstrumented\_modules}; it is green on every push. Sanitizers do not run locally on macOS.
+  \code{ignore\_noninstrumented\_modules}; it is green on every push. ThreadSanitizer and AddressSanitizer do not run
+  on this Mac (UBSan does).
 \item \textbf{Interoperability.} Our files load into Hugging Face \code{tokenizers}, which encodes held-out text to the
   same ids as the Python reference encoder.
 \end{itemize}
@@ -234,10 +236,11 @@ thread pinning, so threads 1--5 are reported separately from 6--11, where effici
 \subsection{Phase 3 speedup}
 
 \begin{table}[h]
-\centering
+\centering\small
 \begin{tabular}{llrrrr}
 \toprule
-corpus, vocab & IncrSerial & \code{incr-par} 5 & \code{incr-batch} 3 & \code{incr-batch} 5 & \code{incr-batch} 11\\
+ & IncrSerial & \code{incr-par} & \multicolumn{3}{c}{\code{incr-batch}}\\
+corpus, vocab & 1 thread & 5 threads & 3 threads & 5 threads & 11 threads\\
 \midrule
 WikiText-103, 32k & \wtBaseMerge\,s & \wtParFive\x & \wtBatchThree\x & \textbf{\wtBatchFive\x} & \wtBatchEleven\x \\
 WikiText-103, 100k & \wtBaseMergeC\,s & \wtParFiveC\x & \wtBatchThreeC\x & \textbf{\wtBatchFiveC\x} & \wtBatchElevenC\x \\
@@ -252,11 +255,12 @@ On WikiText-103, batching turns a merge phase that one-merge-per-step parallelis
 \wtBatchFive\x{} speedup at 5 threads (Table~\ref{tab:phase3}). The gain shrinks at vocabulary 100k, where later merges
 have small counts and many ties, so batches are smaller (span \wtSpanC\x{} against \wtSpan\x). Beyond 5 threads the
 efficiency cores slow every round down to their pace, and the speedup drops. The B4 sweep that chose the defaults
-measured \kill\x{} and \killC\x{} with its own IncrSerial runs (\code{b4\_sweep.csv}); differences of this size are within
-the run-to-run spread of IncrSerial (up to 12\% min--max in that sweep).
+measured \killSweep\x{} and \killSweepC\x{} with its own IncrSerial runs (\code{b4\_sweep.csv}), where IncrSerial happened to run slower; the gap is
+comparable to the run-to-run spread seen there (up to 12\% min--max for IncrSerial, 22\% for \code{incr-batch}).
 
 On TinyStories the merge phase takes only \tsBaseMergeMs\,ms and batches stay small (Section~\ref{sec:limits}), so no
-engine gains: \code{incr-batch} breaks even at 3--5 threads and is slower at 11.
+engine gains: \code{incr-batch} is slightly slower than IncrSerial at 3--5 threads (\tsBatchFive\x) and clearly
+slower at 11 (\tsBatchEleven\x).
 
 \paragraph{Whole run.} Pre-tokenizing dominates the total. Against IncrSerial at 1 thread, the full pipeline with
 \code{incr-batch} is \wtTotFive\x{} faster at 5 threads and \wtTotEleven\x{} at 11 on WikiText-103 (IncrSerial with the
@@ -289,7 +293,7 @@ from the batched rounds, with hashed owners keeping each round balanced.
 
 \subsection{What the trace shows}
 
-\code{--trace} records per-thread events (selection, owner rewrites, reductions, order updates) into 64-byte-aligned
+\code{-{}-trace} records per-thread events (selection, owner rewrites, reductions, order updates) into 64-byte-aligned
 buffers; with tracing off the run is unchanged within noise, and tracing on costs \ohOn\% and \ohOnC\% of the merge phase
 at 32k and 100k (\code{trace\_overhead.md}). At 5 threads on WikiText-103 (32k), the master is busy for \traceMaster\,ms of
 the merge phase and each worker for about \traceWorker\,ms: the serial selection and order updates on the master now bound
@@ -300,10 +304,11 @@ of it (\code{trace\_wikitext.full\_v32000\_t11.md}), so every parallel round wai
 \subsection{Scale points}
 
 \begin{table}[h]
-\centering
+\centering\small
 \begin{tabular}{lrrrr}
 \toprule
-input & serial total & \code{incr-batch} 11 threads & total speedup & phase 3, 5 threads\\
+ & serial & \multicolumn{2}{c}{\code{incr-batch}, 11 threads} & phase 3,\\
+input & total & total & speedup & 5 threads\\
 \midrule
 TinyStories full (\scTsGB\,GB), 32k & \scTsSerial\,s & \scTsBatchEleven\,s & \scTsTotEleven\x & \scTsBatchFive\x\\
 TinyStories full, 100k & \scTsSerialC\,s & \scTsBatchElevenC\,s & \scTsTotElevenC\x & \scTsBatchFiveC\x\\

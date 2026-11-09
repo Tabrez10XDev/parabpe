@@ -24,13 +24,13 @@ Work through the tasks in **pick-up order**. A task can start once everything in
 | 14 | B1 Pure refactor into `src/incr_common.hpp` | ✅ | B0 |
 | 15 | B2 `incr-batch` plumbing | ✅ | B1 |
 | 16 | B3 Serial batched engine + verifier + tests | ✅ | B2 |
-| 17 | B4 Hashed owners + parallel rounds (**mains power** for the kill check) | 🟨 code done; kill check and default sweep need mains | B3 |
+| 17 | B4 Hashed owners + parallel rounds (**mains power** for the kill check) | ✅ (kill check passed: 1.83× / 1.39×) | B3 |
 | 18 | B5 IncrPar owner-map ablation | ✅ | B4 |
 | 19 | N6 Related-work notes | ✅ | — |
-| 20 | S8 Full benchmarks (on the Mac, **mains power**) | ⬜ | S4–S7, S10, N7, B5 |
-| 21 | B6 Trace (`--trace`, P/E labels) | ⬜ | B3 |
-| 22 | B7 ParaBPE Studio | ⬜ | B6, S8 |
-| 23 | S9 Report | ⬜ | S8, B7 |
+| 20 | S8 Full benchmarks (on the Mac, **mains power**) | ✅ | S4–S7, S10, N7, B5 |
+| 21 | B6 Trace (`--trace`, P/E labels) | ✅ | B3 |
+| 22 | B7 ParaBPE Studio | ✅ (demo rehearsal is the student's) | B6, S8 |
+| 23 | S9 Report | ✅ draft built (`report/report.pdf`); student's review pending | S8, B7 |
 | — | N5 Get big-machine access (optional) | ⬜ **human task** | — |
 
 ---
@@ -374,6 +374,11 @@ numbers: `docs/notes/demo.md`. Rehearsing the demo twice is the student's.
 ### S9: Report
 Title: *ParaBPE: Provably Exact Parallel BPE Training — Batched Merges That Break the Sequential Chain.* `report/report.tex`;
 every number traced to `results/`. See also `docs/PLAN.md` §9.
+
+**Draft done (2026-11-08).** `report/report.tex` → `report/report.pdf` (8 pages, `cd report && tectonic report.tex`).
+Every measurement is a macro in `report/numbers.tex`, generated from `results/` by `report/numbers.py` with
+`plot.py`'s rules (warm-ups and stalls dropped, medians, baseline serial/incr-serial at 1 thread). The N6 follow-ups are
+done (`related_work.md`). Left for the student: review the report, and rehearse the demo twice (`docs/notes/demo.md`).
 
 ## N5 (human)
 - **N5 (optional):** only if time and budget allow, rent a machine with ≥16 *physical* cores for an extra scaling

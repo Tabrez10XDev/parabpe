@@ -40,6 +40,11 @@ string(REGEX REPLACE ".*PCRE2_MAJOR[ \t]+([0-9]+).*" "\\1" PCRE2_MAJOR "${PCRE2_
 string(REGEX REPLACE ".*PCRE2_MINOR[ \t]+([0-9]+).*" "\\1" PCRE2_MINOR "${PCRE2_VERSION_LINES}")
 if("${PCRE2_MAJOR}.${PCRE2_MINOR}" VERSION_LESS 10.45)
   message(FATAL_ERROR "PCRE2 ${PCRE2_MAJOR}.${PCRE2_MINOR} found; SPEC.md needs >= 10.45 (Unicode 16.0)")
+elseif("${PCRE2_MAJOR}.${PCRE2_MINOR}" VERSION_GREATER 10.45)
+  # 10.49 (Homebrew, Nov 2026) ships Unicode 17 and fails PCRE2.UnicodeVersionIsPinned + golden tests.
+  message(WARNING "PCRE2 ${PCRE2_MAJOR}.${PCRE2_MINOR} found; SPEC.md pins Unicode 16.0 (PCRE2 10.45). "
+                  "Build it with scripts/build_pcre2.sh ~/pcre2 and pass -DPCRE2_INCLUDE_DIR=~/pcre2/include "
+                  "-DPCRE2_LIBRARY=~/pcre2/lib/libpcre2-8.a")
 endif()
 add_library(pcre2_8 INTERFACE)
 target_include_directories(pcre2_8 INTERFACE ${PCRE2_INCLUDE_DIR})

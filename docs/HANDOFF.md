@@ -1,6 +1,6 @@
 # Handoff: read this first
 
-## Current state (2026-11-07)
+## Current state (2026-11-08)
 **Done:** N1 (repo skeleton), N2 (draft spec and interfaces), **N4 (Python reference + golden files)**, **N3 (data)**, **S1 (chunker + serial pre-tokenizer)** and **S2 (WordTable + NaiveSerial +
 writers + `train()`)** **S3 (IncrSerial + equivalence harness)** and **S4 (OMP pre-tokenizer + TSan CI job)**. Training works end to end
 with `--pretok serial|omp --merge naive-serial|incr-serial`; All four engines work: IncrPar has a parallel phase 2 (S5) and phase 3 (S6).
@@ -421,8 +421,18 @@ All configs ran: 2,232 rows, 0 stalled, 0 failed, 0 on battery. **Every row for 
 - **Baseline correction:** the S8 notes first quoted phase-3 speedups against the median of every IncrSerial row. The
   plots use serial/incr-serial at 1 thread; the S8 section above now uses that (incr-batch 1.63× at 5 threads, v32k).
 
-**Next task:** S9 (report). Ask before installing a TeX toolchain. Before writing: check BatchBPE §3.6 against its PDF
-and read the two-phase BoundlessBPE paper in full (N6 follow-ups). Timing runs **need the Mac on mains power and
+### S9 (2026-11-08)
+- `report/report.pdf`, 8 pages, built with tectonic (installed with the user's approval). Numbers come from
+  `report/numbers.py` → `numbers.tex`, so rerunning it after new benchmarks updates the report.
+- Found while writing: **`plot.py`'s weak-scaling chart mixed in other configs** (fixed; 0.46 → 0.57 at 11 threads), and
+  the S8 notes had used a different IncrSerial baseline from the plots (corrected above). `results/` gained the B6
+  overhead table and trace summaries so every quoted number has a file behind it.
+- N6 follow-ups done: BatchBPE §3.6 quoted from the paper; two-phase BoundlessBPE read in full. Neither changes the claim.
+- **Environment change:** installing tectonic upgraded Homebrew's pcre2 to 10.49 (Unicode 17). PCRE2 10.45 is now built
+  locally and linked statically; see Environment notes.
+
+**Next:** nothing left in the pick-up order. For the student: review the report, rehearse the demo twice
+(`docs/notes/demo.md`), and decide on N5 (optional big machine). Timing runs **need the Mac on mains power and
 awake**: `.venv/bin/python -I bench/run_bench.py bench/configs/<name>.yaml --require-ac`, then
 `bench/plot.py results/*.csv --out-dir results/plots`.
 
@@ -460,7 +470,14 @@ awake**: `.venv/bin/python -I bench/run_bench.py bench/configs/<name>.yaml --req
 ## Environment notes (developer Mac)
 - macOS on Apple Silicon (arm64). The default C++ compiler is **Apple clang 17** (`/usr/bin/c++`).
   The `clang` on PATH is the **swiftly** toolchain, which CMake does not use.
-- `cmake` 3.29 is installed from **MacPorts** (`/opt/local/bin`). `libomp` 22 and `pcre2` 10.45 come from **Homebrew**.
+- `cmake` 3.29 is installed from **MacPorts** (`/opt/local/bin`). `libomp` 22 comes from **Homebrew**.
+- **PCRE2 (changed 2026-11-08):** `brew install tectonic` (S9) upgraded Homebrew's pcre2 to 10.49, which is Unicode 17:
+  `PCRE2.UnicodeVersionIsPinned` and the golden tests failed. PCRE2 10.45 is now built from source into `~/pcre2`
+  (`scripts/build_pcre2.sh ~/pcre2`, as CI does) and linked **statically**; `build` and `build-debug` are configured
+  with `-DPCRE2_INCLUDE_DIR=$HOME/pcre2/include -DPCRE2_LIBRARY=$HOME/pcre2/lib/libpcre2-8.a`. CMake now warns when it
+  finds a PCRE2 newer than 10.45. After the switch, `merges.txt` for wikitext.full v32k equals the S8 sha256 and the
+  matrix is clean. All results in `results/` predate the upgrade.
+- **TeX:** `tectonic` 0.17 (Homebrew), installed for S9 with the user's approval. `cd report && tectonic report.tex`.
 - **OpenMP on macOS:** `CMakeLists.txt` asks `brew --prefix libomp` for the install location and sets `OpenMP_CXX_FLAGS`, so `find_package(OpenMP)`
   works with Apple clang. Don't remove that block.
 - PCRE2 is found with `find_path`/`find_library` plus Homebrew hints, because `pkg-config` is **not installed**.
