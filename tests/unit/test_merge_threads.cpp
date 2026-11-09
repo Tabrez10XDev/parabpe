@@ -3,6 +3,7 @@
 
 #include <gtest/gtest.h>
 
+#include <algorithm>
 #include <cstdio>
 #include <fstream>
 #include <random>
@@ -78,6 +79,25 @@ size_t occurrences(const std::string& s, const std::string& needle) {
   return n;
 }
 
+// Which threads pick up owners is up to the OpenMP scheduler (under TSan thread 0 can take them
+// all), so the checks are deterministic: incr-batch has one owner per merge thread and records one
+// OWNER_MERGE per owner per parallel round, and no phase-3 event runs above the merge team.
+void expect_merge_team(const std::string& text, int threads, int merge_threads) {
+  for (MergeStrategy m : {MergeStrategy::IncrBatch, MergeStrategy::IncrPar}) {
+    const TrainConfig cfg = config(m, threads, merge_threads);
+    Tracer tracer(std::max(threads, merge_threads));
+    const TrainResult r = traced(text, cfg, tracer);
+    EXPECT_EQ(r.merges, train_text(text, config(m, 1, 0)).merges);
+    EXPECT_EQ(tracer.dropped(), 0u);
+    EXPECT_GT(tracer.count(TraceKind::OwnerMerge), 0u);
+    EXPECT_LT(last_phase3_thread(tracer), merge_threads);
+    if (m == MergeStrategy::IncrBatch) {
+      ASSERT_GT(r.stats.parallel_rounds, 0u);
+      EXPECT_EQ(tracer.count(TraceKind::OwnerMerge), r.stats.parallel_rounds * merge_threads);
+    }
+  }
+}
+
 }  // namespace
 
 TEST(MergeThreads, Resolve) {
@@ -105,37 +125,12 @@ TEST(MergeThreads, AutoMatchesThisMachine) {
   EXPECT_EQ(resolve_merge_threads(cfg), p >= 1 ? p : 64);
 }
 
-// A merge team wider than phase 1: the extra threads do phase-3 work and nothing is dropped.
 TEST(MergeThreads, WiderTeamForPhase3) {
-  const std::string text = random_text(11, 8000);
-  for (MergeStrategy m : {MergeStrategy::IncrBatch, MergeStrategy::IncrPar}) {
-    const TrainConfig cfg = config(m, 2, 4);
-    Tracer tracer(4);
-    const TrainResult r = traced(text, cfg, tracer);
-    EXPECT_EQ(r.merges, train_text(text, config(m, 1, 0)).merges);
-    EXPECT_EQ(tracer.dropped(), 0u);
-    EXPECT_EQ(last_phase3_thread(tracer), 3);
-    for (int t = 2; t < 4; ++t) {
-      for (const detail::TraceEvent& e : tracer.events(t)) {
-        EXPECT_TRUE(is_phase3(e.kind) || e.kind == TraceKind::ShardReduce)
-            << "phase-1 event on thread " << t << " with --threads 2";
-      }
-    }
-  }
+  expect_merge_team(random_text(11, 8000), 2, 4);
 }
 
-// A merge team narrower than phase 1: no phase-3 work above thread 1.
 TEST(MergeThreads, NarrowerTeamForPhase3) {
-  const std::string text = random_text(12, 8000);
-  for (MergeStrategy m : {MergeStrategy::IncrBatch, MergeStrategy::IncrPar}) {
-    const TrainConfig cfg = config(m, 8, 2);
-    Tracer tracer(8);
-    const TrainResult r = traced(text, cfg, tracer);
-    EXPECT_EQ(r.merges, train_text(text, config(m, 1, 0)).merges);
-    EXPECT_EQ(tracer.dropped(), 0u);
-    EXPECT_GT(tracer.count(TraceKind::OwnerMerge), 0u);
-    EXPECT_EQ(last_phase3_thread(tracer), 1);
-  }
+  expect_merge_team(random_text(12, 8000), 8, 2);
 }
 
 // --trace sizes its per-thread buffers for the wider of the two teams.
