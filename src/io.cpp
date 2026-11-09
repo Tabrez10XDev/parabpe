@@ -1,5 +1,7 @@
 #include "parabpe/io.hpp"
 
+#include "parabpe/trainer.hpp"
+
 #include <sys/utsname.h>
 #include <unistd.h>
 
@@ -291,8 +293,9 @@ std::string format_timings(const TrainResult& result, const std::string& input,
     o << "},\n";
   }
   o << "  \"config\": {\"input\": " << json_string(input) << ", \"vocab_size\": " << cfg.vocab_size
-    << ", \"threads\": " << cfg.threads << ", \"pretok\": \"" << name_of(cfg.pretok)
-    << "\", \"pretok_reduce\": \"" << name_of(cfg.pretok_reduce) << "\", \"merge\": \""
+    << ", \"threads\": " << cfg.threads << ", \"merge_threads\": " << resolve_merge_threads(cfg)
+    << ", \"pretok\": \"" << name_of(cfg.pretok) << "\", \"pretok_reduce\": \""
+    << name_of(cfg.pretok_reduce) << "\", \"merge\": \""
     << name_of(cfg.merge) << "\", \"par_threshold_tokens\": " << cfg.par_threshold_tokens
     << ", \"work_unit_bytes\": " << cfg.work_unit_bytes << "},\n"
     << "  \"hardware\": {\"cpu_model\": " << json_string(h.cpu_model)

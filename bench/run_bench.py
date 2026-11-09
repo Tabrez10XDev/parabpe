@@ -11,7 +11,8 @@ default [contiguous]), owners_per_thread (incr-batch, default [0] = the engine's
 full_rounds (incr-batch: batch every round, for span figures), owner_stats (incr-par: report owner
 load; slows the run, so plot.py never uses these rows for timing), zip (bool: pair inputs[i] with
 threads[i] instead of the full product, for weak scaling), baseline (bool: also run serial/incr-serial
-at 1 thread for every input and vocabulary, the reference for every speedup).
+at 1 thread for every input and vocabulary, the reference for every speedup), merge_threads (parallel
+merge engines: phase-3 team size, an int or "auto"; default [0] = same as threads; B8).
 Configurations with only serial strategies run at threads=1 only. On macOS the runner holds a
 `caffeinate` assertion (a system sleep mid-run once turned 0.1 s into 295 s) and records each
 run's CPU time (`cpu_s`), so stalls show up as total >> cpu_s / threads. Strategies that report
@@ -45,7 +46,9 @@ COLUMNS = (["timestamp", "config", "input", "input_bytes", "vocab_size", "thread
             "max_batch", "parallel_rounds", "small_rounds", "batch_sizes", "busiest_mean"] +
            [f"{p}_s" for p in PHASES] +
            ["cpu_s", "merges_sha256", "power", "cpu_model", "physical_cores", "performance_cores",
-            "efficiency_cores", "os", "git_sha"])
+            "efficiency_cores", "os", "git_sha",
+            # B8, appended so older CSVs keep their column order: requested and resolved team size.
+            "merge_threads", "merge_threads_used"])
 PARALLEL = {"pretok": {"omp"}, "merge": {"naive-par", "incr-par", "incr-batch"}}
 THRESHOLD_MERGES = {"incr-par", "incr-batch"}  # engines that read par_threshold_tokens
 AC = ("AC Power", "n/a")
@@ -63,7 +66,7 @@ def grid(cfg):
     seen = set()
 
     def run(inp, t, vocab, pretok, merge, reduce="bucketed", thr=4096, owner_map="contiguous",
-            owners=0, full_rounds=False, owner_stats=False):
+            owners=0, full_rounds=False, owner_stats=False, merge_threads=0):
         parallel = pretok in PARALLEL["pretok"] or merge in PARALLEL["merge"]
         if not parallel:
             t = 1  # a serial-only configuration does not depend on the thread count
@@ -75,10 +78,12 @@ def grid(cfg):
             owner_map, owner_stats = "-", False
         if merge != "incr-batch":
             owners, full_rounds = 0, False
+        if merge not in PARALLEL["merge"]:
+            merge_threads = 0
         r = dict(input=inp, threads=t, vocab_size=vocab, pretok=pretok, merge=merge,
                  pretok_reduce=reduce, par_threshold_tokens=thr, owner_map=owner_map,
                  owners_per_thread=owners, full_rounds=int(full_rounds),
-                 owner_stats=int(owner_stats))
+                 owner_stats=int(owner_stats), merge_threads=str(merge_threads))
         key = tuple(r.values())
         if key in seen:
             return None
@@ -93,7 +98,8 @@ def grid(cfg):
             as_list(cfg.get("pretok_reduce", "bucketed")),
             as_list(cfg.get("par_threshold_tokens", 4096)),
             as_list(cfg.get("owner_map", "contiguous")), as_list(cfg.get("owners_per_thread", 0)),
-            as_list(cfg.get("full_rounds", False)), as_list(cfg.get("owner_stats", False))):
+            as_list(cfg.get("full_rounds", False)), as_list(cfg.get("owner_stats", False)),
+            as_list(cfg.get("merge_threads", 0))):
         runs.append(run(inp, t, *rest))
     return [r for r in runs if r]
 
@@ -132,6 +138,8 @@ def run_one(binary, prefix, run, out_dir):
         cmd.append("--batch-full-rounds")
     if run["owner_stats"]:
         cmd.append("--owner-stats")
+    if run["merge_threads"] != "0":
+        cmd += ["--merge-threads", run["merge_threads"]]
     env = dict(os.environ, OMP_PROC_BIND="close", OMP_PLACES="cores")
     before = resource.getrusage(resource.RUSAGE_CHILDREN)
     proc = subprocess.run(cmd, capture_output=True, text=True, env=env)
@@ -195,7 +203,8 @@ def main():
             w.writeheader()
         for i, run in enumerate(runs, 1):
             label = (f"[{i}/{len(runs)}] {pathlib.Path(run['input']).name} v{run['vocab_size']} "
-                     f"{run['pretok']}/{run['pretok_reduce']}/{run['merge']} t{run['threads']}")
+                     f"{run['pretok']}/{run['pretok_reduce']}/{run['merge']} t{run['threads']}"
+                     + (f" mt{run['merge_threads']}" if run["merge_threads"] != "0" else ""))
             rep, retries = 0, 0
             while rep <= reps:
                 power = power_source()
@@ -219,7 +228,9 @@ def main():
                     "config": cfg_path.stem,
                     **{k: run[k] for k in ("input", "vocab_size", "threads", "pretok", "pretok_reduce",
                                            "merge", "par_threshold_tokens", "owner_map",
-                                           "owners_per_thread", "full_rounds", "owner_stats")},
+                                           "owners_per_thread", "full_rounds", "owner_stats",
+                                           "merge_threads")},
+                    "merge_threads_used": t["config"]["merge_threads"],
                     **{k: batch.get(k, 0) for k in ("rounds", "max_batch", "parallel_rounds",
                                                     "small_rounds")},
                     "batch_sizes": " ".join(str(v) for v in batch.get("sizes", {}).values()),

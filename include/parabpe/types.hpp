@@ -39,9 +39,13 @@ enum class MergeStrategy { NaiveSerial, IncrSerial, NaivePar, IncrPar, IncrBatch
 // How IncrPar assigns words to owners (B5). IncrBatch is always hashed.
 enum class OwnerMap { Contiguous, Hashed };
 
+// TrainConfig::merge_threads: as many threads as there are performance cores, at most `threads`.
+constexpr int kMergeThreadsAuto = -1;
+
 struct TrainConfig {
   size_t vocab_size = 32000;
   int threads = 1;
+  int merge_threads = 0;  // phase 3 team size: 0 = threads, kMergeThreadsAuto = P-cores (B8)
   std::string pattern = kGPT2Pattern;
   std::vector<std::string> special_tokens = {"<|endoftext|>"};
   PretokStrategy pretok = PretokStrategy::Serial;

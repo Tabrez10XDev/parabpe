@@ -31,6 +31,7 @@ Work through the tasks in **pick-up order**. A task can start once everything in
 | 21 | B6 Trace (`--trace`, P/E labels) | ✅ | B3 |
 | 22 | B7 ParaBPE Studio | ✅ (demo rehearsal is the student's) | B6, S8 |
 | 23 | S9 Report | ✅ draft built (`report/report.pdf`); student's review pending | S8, B7 |
+| 24 | B8 `--merge-threads auto` (phase 3 on P-cores; replaces the TinyStories fallback idea) | ✅ code + tests; benchmark needs **mains power** | S8, B6 |
 | — | N5 Get big-machine access (optional) | ⬜ **human task** | — |
 
 ---
@@ -379,6 +380,23 @@ every number traced to `results/`. See also `docs/PLAN.md` §9.
 Every measurement is a macro in `report/numbers.tex`, generated from `results/` by `report/numbers.py` with
 `plot.py`'s rules (warm-ups and stalls dropped, medians, baseline serial/incr-serial at 1 thread). The N6 follow-ups are
 done (`related_work.md`). Left for the student: review the report, and rehearse the demo twice (`docs/notes/demo.md`).
+
+### B8: `--merge-threads` (phase 3 on the P-cores)
+Added 2026-11-09 at the user's request. At 11 threads phase 3 slows down because merge workers land on E-cores
+(incr-batch wikitext.full v32k: 0.360 s at t5, 0.425 s at t11), while phase 1 wants every core.
+- `TrainConfig::merge_threads` (0 = `--threads`, `kMergeThreadsAuto` = P-cores, at most `--threads`);
+  `--merge-threads N|auto`; `resolve_merge_threads()` + `performance_cores()` in `trainer.hpp`. The engine gets a copy of
+  the config with `threads` replaced, so no engine changes; `--trace` sizes its buffers for the wider team;
+  `timings.json` records the resolved count.
+- Default unchanged, so every S8 number stays reproducible and the matrix keeps testing high merge thread counts.
+- Tests: `tests/unit/test_merge_threads.cpp` (resolve rules, wider and narrower teams seen in the trace, trace sizing).
+  Mutations caught: engine given the outer config (2 tests fail), trace sized by `--threads` (1 fails).
+  `run_matrix.py` adds 16 mixed cases ((16,3), (3,16), (11,5), (11,auto) × the parallel engines).
+- Bench: `bench/configs/merge_threads.yaml` → `results/merge_threads.csv`, `results/plots/merge_threads.png`;
+  `run_bench.py` gained `merge_threads` / `merge_threads_used` columns, `plot.py` keeps these rows out of the S8 medians.
+- **Item 3 (serial fallback for small inputs) was dropped with the user's approval:** TinyStories' 0.94× is not parallel
+  overhead. IncrSerial with the same OMP pre-tokenizer takes the same 51.4 ms as incr-batch at 5 threads; the gap is to
+  the baseline row (serial pre-tokenizer, 48.1 ms). The real small-input loss is at 6–11 threads, which `auto` removes.
 
 ## N5 (human)
 - **N5 (optional):** only if time and budget allow, rent a machine with ≥16 *physical* cores for an extra scaling

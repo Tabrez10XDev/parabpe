@@ -1,6 +1,6 @@
 # Handoff: read this first
 
-## Current state (2026-11-08)
+## Current state (2026-11-09)
 **Done:** N1 (repo skeleton), N2 (draft spec and interfaces), **N4 (Python reference + golden files)**, **N3 (data)**, **S1 (chunker + serial pre-tokenizer)** and **S2 (WordTable + NaiveSerial +
 writers + `train()`)** **S3 (IncrSerial + equivalence harness)** and **S4 (OMP pre-tokenizer + TSan CI job)**. Training works end to end
 with `--pretok serial|omp --merge naive-serial|incr-serial`; All four engines work: IncrPar has a parallel phase 2 (S5) and phase 3 (S6).
@@ -431,10 +431,22 @@ All configs ran: 2,232 rows, 0 stalled, 0 failed, 0 on battery. **Every row for 
 - **Environment change:** installing tectonic upgraded Homebrew's pcre2 to 10.49 (Unicode 17). PCRE2 10.45 is now built
   locally and linked statically; see Environment notes.
 
-**Next:** nothing left in the pick-up order. For the student: review the report, rehearse the demo twice
+**Next:** B8's benchmark on mains power (`bench/configs/merge_threads.yaml`, ~20 min), then the S9 report update
+with its numbers and the corrected TinyStories explanation. After that, nothing left in the pick-up order. For the student: review the report, rehearse the demo twice
 (`docs/notes/demo.md`), and decide on N5 (optional big machine). Timing runs **need the Mac on mains power and
 awake**: `.venv/bin/python -I bench/run_bench.py bench/configs/<name>.yaml --require-ac`, then
 `bench/plot.py results/*.csv --out-dir results/plots`.
+
+### B8 (2026-11-09)
+- `--merge-threads N|auto`: phase 3 gets its own team size; `auto` = P-cores (5 here), at most `--threads`. Default
+  unchanged. Details on the B8 card in `docs/TASKS.md`.
+- Indicative (battery) on wikitext.full v32k, incr-batch, 3 runs each: phase 3 at `--threads 11 --merge-threads 5` took
+  0.367–0.379 s against 0.371–0.375 s at `--threads 5` and 0.429–0.433 s at `--threads 11`. Idle libomp workers left
+  from the 11-thread phase 1 don't slow the smaller team, so no `omp_pause_resource_all` was added. merges.txt sha
+  unchanged (356e9836…).
+- **Contradiction reported:** the planned "serial fallback for tiny merge phases" rested on TinyStories' 0.94×, which
+  is a baseline effect (see the B8 card). Replaced by a report correction.
+- Equivalence matrix incl. 16 mixed cases: 0 mismatches on both 10 MB slices.
 
 ## What exists
 | Path | What it is |

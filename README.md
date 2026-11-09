@@ -37,6 +37,7 @@ Sanitizer builds: `-DPARABPE_ASAN=ON`, or `-DPARABPE_TSAN=ON` (use clang with LL
 |---|---|
 | `--pretok` | `serial`, `omp` |
 | `--merge` | `naive-serial`, `incr-serial`, `naive-par`, `incr-par`, `incr-batch` |
+| `--merge-threads` | `N` or `auto`: thread count for phase 3 (merging); default = `--threads`. `auto` = the performance cores, at most `--threads` (5 on the M3 Pro), so phase 1 can use every core while merging stays off the E-cores |
 | `--par-threshold-tokens` | IncrPar, incr-batch: minimum tokens touched in a step before the work is split across threads |
 | `--verify-batches` | incr-batch: check every member against a sequential oracle |
 | `--batch-full-rounds` | incr-batch: batch every round, even ones too small to go parallel (the span figures) |
@@ -93,3 +94,4 @@ report/            LaTeX report
 | B6 | `--trace` (Chrome Trace JSON) | ✅ |
 | B7 | ParaBPE Studio | ✅ `studio/`, demo in `docs/notes/demo.md` |
 | S9 | Report | ✅ draft: `report/report.pdf` (student review pending) |
+| B8 | `--merge-threads auto` (phase 3 on P-cores) | ✅ code + tests; benchmark pending mains power |

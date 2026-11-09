@@ -20,6 +20,7 @@ cmake --build build -j                           # build
 ctest --test-dir build --output-on-failure       # test
 cmake -B build-asan -DPARABPE_ASAN=ON -DCMAKE_BUILD_TYPE=Debug   # ASan/UBSan build (hangs on this Mac: see HANDOFF)
 ./build/parabpe train --input <file> --vocab-size 1000 --threads 4 --pretok omp --merge incr-serial --out runs/x
+./build/parabpe train --input <file> --threads 11 --merge-threads auto --pretok omp --merge incr-batch --out runs/y  # phase 3 on P-cores
 
 python3 -m venv .venv && .venv/bin/pip install -r requirements.txt   # Python tooling
 python3 -I tests/equivalence/run_matrix.py --input data/tinystories.10M.txt --vocab-size 4000   # equivalence

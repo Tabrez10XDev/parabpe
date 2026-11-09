@@ -121,6 +121,7 @@ add_executable(parabpe_tests
   tests/unit/test_io.cpp
   tests/unit/test_batch.cpp
   tests/unit/test_trace.cpp
+  tests/unit/test_merge_threads.cpp
 )
 target_link_libraries(parabpe_tests PRIVATE parabpe_core GTest::gtest_main)
 target_include_directories(parabpe_tests PRIVATE src)

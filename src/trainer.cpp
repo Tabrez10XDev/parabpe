@@ -2,11 +2,18 @@
 
 #include <omp.h>
 
+#include <algorithm>
+#include <stdexcept>
+
 #include "parabpe/corpus.hpp"
 #include "parabpe/io.hpp"
 #include "parabpe/merge_engine.hpp"
 #include "parabpe/pretokenizer.hpp"
 #include "trace.hpp"
+
+#ifdef __APPLE__
+#include <sys/sysctl.h>
+#endif
 
 namespace parabpe {
 namespace {
@@ -28,7 +35,11 @@ class Laps {
 TrainResult run_pipeline(std::string_view text, const TrainConfig& cfg, double t0,
                          double chunk_extra) {
   omp_set_num_threads(cfg.threads);
-  detail::TraceSession trace(cfg.trace_path, cfg.threads);
+  // Phase 3 may use a different team (B8): every engine sizes its team, owners and parallel
+  // rounds from threads, so it gets a copy with merge_threads in its place.
+  TrainConfig merge_cfg = cfg;
+  merge_cfg.threads = resolve_merge_threads(cfg);
+  detail::TraceSession trace(cfg.trace_path, std::max(cfg.threads, merge_cfg.threads));
   TrainResult r;
   WordCounts counts = count_words(text, cfg, &r.timings);
   r.timings.chunk += chunk_extra;
@@ -37,8 +48,9 @@ TrainResult run_pipeline(std::string_view text, const TrainConfig& cfg, double t
   WordTable table = build_word_table(counts);
   laps.lap(r.timings.build);
 
+  omp_set_num_threads(merge_cfg.threads);
   const auto engine = make_merge_engine(cfg.merge);
-  r.merges = engine->run(table, cfg, r.timings);
+  r.merges = engine->run(table, merge_cfg, r.timings);
   r.stats = engine->stats();
   r.vocab = build_vocab(r.merges, cfg.special_tokens);
   r.timings.total = omp_get_wtime() - t0;
@@ -47,6 +59,27 @@ TrainResult run_pipeline(std::string_view text, const TrainConfig& cfg, double t
 }
 
 }  // namespace
+
+int performance_cores() {
+#ifdef __APPLE__
+  auto get = [](const char* name) {
+    int value = 0;
+    size_t size = sizeof(value);
+    return sysctlbyname(name, &value, &size, nullptr, 0) == 0 ? value : -1;
+  };
+  if (get("hw.nperflevels") >= 2) return get("hw.perflevel0.physicalcpu");
+#endif
+  return -1;
+}
+
+int resolve_merge_threads(const TrainConfig& cfg, int p_cores) {
+  if (cfg.merge_threads == 0) return cfg.threads;
+  if (cfg.merge_threads == kMergeThreadsAuto) {
+    return p_cores >= 1 ? std::min(cfg.threads, p_cores) : cfg.threads;
+  }
+  if (cfg.merge_threads < 1) throw std::invalid_argument("merge_threads must be >= 1, 0 or auto");
+  return cfg.merge_threads;
+}
 
 WordCounts count_words(std::string_view text, const TrainConfig& cfg, PhaseTimings* t) {
   omp_set_num_threads(cfg.threads);

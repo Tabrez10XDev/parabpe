@@ -1,0 +1,10 @@
+# B8: phase 3 on the P-cores (--merge-threads auto) while phase 1 uses every thread.
+# Threads 6-11 put E-cores in the merge team by default; auto keeps it at the 5 P-cores.
+inputs: [data/wikitext.full.txt, data/tinystories.1G.txt]
+threads: [5, 6, 8, 11]
+pretok: [omp]
+merge: [incr-serial, incr-par, incr-batch]
+merge_threads: [0, auto]
+vocab_size: [32000, 100000]
+baseline: true
+reps: 5

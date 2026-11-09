@@ -63,6 +63,8 @@ def strategy(row):
 
 def kind(row):
     """What a run is for; only "main" runs are comparable timings of the default configuration."""
+    if row["config"] == "merge_threads":
+        return "merge_threads"  # B8: own figure; never pooled with the S8 medians
     if row["full_rounds"]:
         return "span"
     if row["owner_stats"]:
@@ -76,6 +78,9 @@ def load(paths):
     df = pd.concat([pd.read_csv(p, keep_default_na=False, na_values=[""]) for p in paths],
                    ignore_index=True)
     df = df[df["warmup"] == 0].copy()
+    # B8 column; older CSVs predate it (0 = merge on all threads). "5.0" from a float column -> "5".
+    mt = df["merge_threads"] if "merge_threads" in df else pd.Series("0", index=df.index)
+    df["merge_threads"] = mt.fillna("0").astype(str).str.replace(r"\.0$", "", regex=True)
     stalled = df["total_s"] > 2 * df["cpu_s"] + 0.05
     df["strategy"] = df.apply(strategy, axis=1)
     df["kind"] = df.apply(kind, axis=1)
@@ -403,6 +408,47 @@ def owners_plot(all_st, df, name, vocab, base, out):
     return True
 
 
+def merge_threads_plot(df, out):
+    """B8: phase-3 speedup at threads 5-11, merge team = all threads (solid) or auto (dashed)."""
+    d = df[df["kind"] == "merge_threads"].copy()
+    if d.empty:
+        return False
+    d["mt"] = d["merge_threads"]
+    cases = list(d.groupby(["name", "vocab_size"]).groups)
+    fig, axes = plt.subplots(1, len(cases), figsize=(3.6 * len(cases), 4.3), constrained_layout=True,
+                             sharey=False, squeeze=False)
+    for ax, (name, vocab) in zip(axes[0], cases):
+        c = d[(d["name"] == name) & (d["vocab_size"] == vocab)]
+        base = c[(c["strategy"] == "serial/incr-serial") & (c["threads"] == 1)]["merge_s"].median()
+        ends = []
+        for s in ["omp/incr-serial", "omp/incr-par", "omp/incr-batch"]:
+            i = list(STRATEGY_COLORS).index(s)
+            for mt, ls, tag in [("0", "-", "all threads"), ("auto", "--", "auto")]:
+                g = c[(c["strategy"] == s) & (c["mt"] == mt)]
+                if g.empty:
+                    continue
+                m = g.groupby("threads")["merge_s"].median()
+                ax.plot(m.index, base / m.to_numpy(), color=SLOTS[i], ls=ls, marker=MARKERS[i], ms=8,
+                        mec=SURFACE, mew=2, label=f"{s.split('/')[1]}, {tag}")
+                if s == "omp/incr-batch":
+                    ends.append((m.index[-1], base / m.iloc[-1], f"{base / m.iloc[-1]:.2f}×"))
+        ax.axhline(1, color=TEXT_2, lw=1)
+        mark_regions(ax, int(c["threads"].max()))
+        label_ends(ax, ends)
+        ax.set_title(f"{name}, vocab {vocab}")
+        ax.set_xlabel("threads (phase 1)")
+        ax.set_xticks(sorted(c.loc[c["threads"] > 1, "threads"].unique()))
+        ax.set_xlim(4.5, c["threads"].max() + 1.8)
+    axes[0][0].set_ylabel("phase 3 speedup vs IncrSerial (median)")
+    handles, labels = axes[0][0].get_legend_handles_labels()
+    fig.legend(handles, labels, loc="outside lower center", ncol=3, fontsize=8, handlelength=4)
+    fig.suptitle("Merge team: all threads (solid) vs --merge-threads auto = P-cores (dashed)",
+                 x=0.01, ha="left", fontsize=12)
+    fig.savefig(out, dpi=150)
+    plt.close(fig)
+    return True
+
+
 def md_table(df, floatfmt="{:.3f}"):
     fmt = lambda v: floatfmt.format(v) if isinstance(v, float) else str(v)  # noqa: E731
     rows = [list(df.columns), ["---"] * len(df.columns)]
@@ -421,7 +467,7 @@ def main():
 
     df, n_stalled = load(args.csv)
     keys = ["kind", "name", "vocab_size", "strategy", "pretok", "merge", "pretok_reduce",
-            "par_threshold_tokens", "owners_per_thread", "threads"]
+            "par_threshold_tokens", "owners_per_thread", "merge_threads", "threads"]
     all_st = stats(df, keys)
     all_st["runs"] = df.groupby(keys).size().to_numpy()
     st = all_st[all_st["kind"] == "main"]
@@ -448,6 +494,8 @@ def main():
         written.append("span.png")
     if batch_sizes_plot(span, out / "batch_sizes.png"):
         written.append("batch_sizes.png")
+    if merge_threads_plot(df, out / "merge_threads.png"):
+        written.append("merge_threads.png")
 
     power = ", ".join(sorted(df["power"].astype(str).unique()))
     lines = ["# Benchmark summary", "",
@@ -467,7 +515,7 @@ def main():
                  .median().reset_index())
         lines += ["## Owner load, busiest / mean", "", md_table(table), ""]
     cols = ["kind", "name", "vocab_size", "strategy", "par_threshold_tokens", "owners_per_thread",
-            "threads", "runs"]
+            "merge_threads", "threads", "runs"]
     for p in PHASES + ["total"]:
         all_st[f"{p} (med [min, max])"] = all_st.apply(
             lambda r: f"{r[f'{p}_s']:.3f} [{r[f'{p}_s_min']:.3f}, {r[f'{p}_s_max']:.3f}]", axis=1)

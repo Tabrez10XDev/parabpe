@@ -63,6 +63,11 @@ int main(int argc, char** argv) {
   tr->add_option("--out", out_dir, "Output directory");
   tr->add_option("--vocab-size", cfg.vocab_size)->check(CLI::Range(257, 1 << 20));
   tr->add_option("--threads", cfg.threads)->check(CLI::PositiveNumber);
+  tr->add_option("--merge-threads", cfg.merge_threads,
+                 "Threads for phase 3 (merging): N, or auto = the performance cores, at most --threads "
+                 "(default: --threads)")
+      ->transform(CLI::Transformer(std::map<std::string, int>{{"auto", kMergeThreadsAuto}}))
+      ->check(CLI::PositiveNumber | CLI::IsMember({kMergeThreadsAuto}));
   tr->add_option("--pretok", cfg.pretok)->transform(CLI::CheckedTransformer(pretok_map));
   tr->add_option("--pretok-reduce", cfg.pretok_reduce,
                  "OMP pre-tokenizer merge: bucketed (default) or critical")

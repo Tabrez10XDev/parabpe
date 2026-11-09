@@ -19,6 +19,9 @@ PRETOKS = ["serial", "omp"]
 MERGES = ["naive-serial", "incr-serial", "naive-par", "incr-par", "incr-par:hashed", "incr-batch"]
 THREADS = [1, 2, 3, 4, 8, 16]
 OUTPUTS = ["merges.txt", "vocab.json"]
+# B8: phase 3 on its own team size, (--threads, --merge-threads), for the parallel merge engines.
+MIXED = [(16, "3"), (3, "16"), (11, "5"), (11, "auto")]
+PAR_MERGES = ["naive-par", "incr-par", "incr-par:hashed", "incr-batch"]
 SKIP = 77
 
 
@@ -26,12 +29,14 @@ def digest(out_dir):
     return tuple(hashlib.sha256((out_dir / f).read_bytes()).hexdigest() for f in OUTPUTS)
 
 
-def train(binary, args, pretok, merge, threads, out_dir):
+def train(binary, args, pretok, merge, threads, out_dir, merge_threads=None):
     engine, _, owner_map = merge.partition(":")
     cmd = [binary, "train", "--input", args.input, "--vocab-size", str(args.vocab_size),
            "--threads", str(threads), "--pretok", pretok, "--merge", engine, "--out", str(out_dir)]
     if owner_map:
         cmd += ["--owner-map", owner_map]
+    if merge_threads:
+        cmd += ["--merge-threads", merge_threads]
     proc = subprocess.run(cmd, capture_output=True, text=True)
     if proc.returncode != 0:
         if "not implemented" in proc.stderr:
@@ -82,6 +87,17 @@ def main():
                         print(f"DIFF  {name}: {', '.join(bad)}")
                     else:
                         print(f"OK    {name}")
+        for merge in PAR_MERGES:
+            for t, mt in MIXED:
+                if ("omp", merge) in skipped:
+                    break
+                name = f"omp/{merge}/t{t}/mt{mt}"
+                status, result = train(args.binary, args, "omp", merge, t, tmp / name, mt)
+                if status != "ok" or result != oracle:
+                    failures.append(name)
+                    print(f"{'ERROR' if status != 'ok' else 'DIFF '} {name}: {result if status != 'ok' else ''}")
+                else:
+                    print(f"OK    {name}")
 
     print(f"\n{len(failures)} mismatches, {len(skipped)} strategy pairs not implemented yet")
     return 1 if failures else 0
