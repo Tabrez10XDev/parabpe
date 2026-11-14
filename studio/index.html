@@ -68,6 +68,52 @@
     <details class="table-view"><summary>Table: time per event kind</summary><div id="kind-table"></div></details>
   </section>
 
+  <section class="card" id="work-card" aria-labelledby="work-h">
+    <div class="row-head">
+      <h2 id="work-h">The work</h2>
+      <p class="muted">The replay above, shown on the data. Same clock: press Play there, or step round by round here.</p>
+    </div>
+    <h3>Phase 1: the corpus, one block per work unit (about 1 MB)</h3>
+    <div class="legend">
+      <span><i style="background: var(--g0)"></i>pre-tokenized</span>
+      <span><i class="running"></i>being pre-tokenized now</span>
+      <span><i style="background: var(--grid)"></i>waiting</span>
+    </div>
+    <div class="units-wrap">
+      <canvas id="units" role="img" aria-label="Work units of the corpus, coloured by where each was pre-tokenized"></canvas>
+      <div id="units-tip" class="tip" hidden></div>
+    </div>
+    <p id="units-note" class="muted small"></p>
+    <h4>Units finished per thread</h4>
+    <div id="units-per-thread" class="per-thread"></div>
+    <p class="muted small">Each thread takes the next unit in corpus order as soon as it finishes one
+      (<code>schedule(dynamic, 1)</code>), which is why the strip fills from the left in a band about as wide as the
+      team. No unit waits for a particular thread, so the work evens out by itself across the threads. Hover a unit for
+      its thread, size and time.</p>
+
+    <h3>Phase 3: words being rewritten</h3>
+    <div class="controls">
+      <button id="round-prev" class="ghost" type="button" disabled>◀ Previous round</button>
+      <button id="round-next" class="ghost" type="button" disabled>Next round ▶</button>
+      <span id="round-label" class="muted"></span>
+    </div>
+    <div class="work-grid">
+      <div>
+        <h4>This round, by thread</h4>
+        <div id="round-lanes" class="round-lanes"></div>
+      </div>
+      <div>
+        <h4>The 60 most frequent words of 4+ bytes <span id="wall-count" class="muted small"></span></h4>
+        <div id="word-wall" class="word-wall"></div>
+      </div>
+    </div>
+    <p class="muted small">Real words of this run (<code>--trace-words</code>), with the owner each belongs to. Their
+      tokens come from replaying this run's <code>merges.txt</code> on their bytes, which is exactly what training
+      does to every word. The thread is the one that ran the word's owner in that round (read from the trace); in a
+      small round the master rewrites everything alone. Boxes are tokens; ␣ is a leading space. Rounds where no word
+      on this list changes are skipped by the step buttons.</p>
+  </section>
+
   <section class="card" id="race-card" aria-labelledby="race-h">
     <div class="row-head">
       <h2 id="race-h">The race</h2>

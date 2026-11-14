@@ -177,6 +177,34 @@ th { color: var(--ink-2); font-weight: 600; }
 .chip small { color: var(--muted); margin-left: 4px; }
 .round.old .chips { opacity: 0.6; }
 
+/* The work (B10) */
+h3 { margin: 14px 0 6px; font-size: 14px; font-weight: 600; }
+h4 { margin: 10px 0 6px; font-size: 12.5px; font-weight: 600; color: var(--ink-2); }
+.legend i.running { background: var(--surface); border: 1.5px solid var(--ink); }
+.units-wrap { position: relative; }
+#units { display: block; width: 100%; }
+.per-thread { display: grid; gap: 3px; max-width: 520px; }
+.pt-row { display: grid; grid-template-columns: 56px 1fr 64px; gap: 8px; align-items: center; font-size: 12px; color: var(--ink-2); }
+.pt-row > .pt-bar { height: 10px; border-radius: 0 4px 4px 0; background: var(--g0); min-width: 1px; }
+.pt-n { text-align: right; }
+.work-grid { display: grid; grid-template-columns: minmax(0, 2fr) minmax(0, 3fr); gap: 16px; }
+@media (max-width: 1000px) { .work-grid { grid-template-columns: 1fr; } }
+.round-lanes { display: grid; gap: 8px; min-height: 120px; }
+.round-lane { display: grid; grid-template-columns: 72px minmax(0, 1fr); gap: 8px; align-items: start; }
+.lane-label { font-size: 12px; font-weight: 600; padding-top: 3px; }
+.lane-items { display: flex; flex-direction: column; gap: 4px; }
+.rewrite { display: inline-flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+.arrow { color: var(--muted); }
+.word-wall { display: flex; flex-wrap: wrap; gap: 6px; align-content: flex-start; min-height: 120px; }
+.word { display: inline-flex; align-items: center; border: 1px solid var(--ring); border-radius: 6px; background: var(--page); overflow: hidden; }
+.word .tok { font: 12.5px ui-monospace, SFMono-Regular, Menlo, monospace; padding: 1px 5px; white-space: pre; }
+.word .tok + .tok { border-left: 1px solid var(--axis); }
+.word.whole { border-color: var(--axis); }
+.word.hit { border-color: var(--e-batch); box-shadow: 0 0 0 1.5px var(--e-batch); }
+.word.after .tok { background: var(--surface); }
+.word .tok.new { font-weight: 700; box-shadow: inset 0 -2px 0 var(--e-batch); }
+.word .by { font-size: 11px; color: var(--ink-2); padding: 0 5px 0 3px; }
+
 /* The race (B9) */
 .race-lanes { display: grid; gap: 12px; margin-top: 6px; }
 .race-lane {

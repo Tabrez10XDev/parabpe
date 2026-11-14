@@ -1,15 +1,16 @@
 # STATE: where the project is right now
 
-Updated 2026-11-13 · last commit: B9 (Studio race) · CI green on `eb3324c`
+Updated 2026-11-13 · last commit: B10 (Studio work view) · CI green on B9 (`6eff391`)
 
 > One screen. **Overwrite, don't append**: history goes to `docs/HANDOFF.md` (dated log). Max ~60 lines.
 > Every agent updates this file before ending a session or committing a task.
 
 ## Now
-- All tasks B0–S9 + B8 done. Every engine is byte-identical to IncrSerial at threads {1,2,3,4,8,16}.
+- All tasks B0–S9 and B8–B10 done. Every engine is byte-identical to IncrSerial at threads {1,2,3,4,8,16}.
 - `--merge-threads N|auto` (B8) is in: phase 3 on the 5 P-cores while phase 1 uses all 11.
 - Report draft builds: `report/report.pdf` (`cd report && tectonic report.tex`).
-- Studio has **the race** (B9): recorded runs replayed side by side with a core map; `docs/notes/race.md`.
+- Studio has **the race** (B9) and **the work** (B10: work units, real words rewritten per thread);
+  `docs/notes/race.md`, `docs/notes/work_view.md`.
 - **Uncommitted:** TinyStories correction in `report/{numbers.py,numbers.tex,report.tex}` (the 0.94× is a
   baseline-row effect, not parallel overhead; real loss is at 6–11 threads).
 
@@ -44,5 +45,6 @@ Updated 2026-11-13 · last commit: B9 (Studio race) · CI green on `eb3324c`
 | Batched merging (B0–B5): proof and risks | `docs/notes/batched_merging.md` |
 | Profiling findings / related work / demo script | `docs/notes/{profiling,related_work,demo}.md` |
 | Studio race: what each element shows, what it doesn't | `docs/notes/race.md` |
+| Studio work view (units, words per thread), trace `unit` + `--trace-words` | `docs/notes/work_view.md` |
 | Benchmark results and plots | `results/*.csv`, `results/plots/`; report numbers via `report/numbers.py` |
 | Where code lives | `docs/HANDOFF.md#what-exists`; engines are `src/merge_*.cpp`, pretok `src/pretok_*.cpp` |

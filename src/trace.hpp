@@ -26,7 +26,7 @@ namespace parabpe::detail {
 
 enum class TraceKind : uint8_t {
   Chunk,        // chunking: the whole step on the master, and each thread's special-token scan
-  PretokUnit,   // one work unit pre-tokenized; arg = bytes
+  PretokUnit,   // one work unit pre-tokenized; arg = bytes, arg2 = the unit's index (B10)
   ShardReduce,  // one shard reduced (phase 1 word maps or a parallel step's pair deltas)
   Select,       // incr-batch: one round's selection on the master; arg = merges in the round
   SerialApply,  // incr-batch: a round applied by the master alone; arg = merges in the round
@@ -38,12 +38,14 @@ inline constexpr int kTraceKinds = 8;
 
 const char* trace_name(TraceKind kind);      // "CHUNK", "PRETOK_UNIT", ...
 const char* trace_arg_name(TraceKind kind);  // what `arg` counts: "bytes", "owner", ...
+const char* trace_arg2_name(TraceKind kind);  // what `arg2` holds, or nullptr when unused
 
 struct TraceEvent {
   double t0, t1;  // omp_get_wtime()
   uint64_t arg;
   uint32_t cpu;  // sampled when the event started
   TraceKind kind;
+  uint64_t arg2 = 0;  // see trace_arg2_name
 };
 
 // The CPU the calling thread runs on right now (0 where the OS can't tell).
@@ -126,9 +128,10 @@ class TraceSpan {
 
   bool on() const { return tracer_ != nullptr; }
   void set_arg(uint64_t arg) { arg_ = arg; }
+  void set_arg2(uint64_t arg2) { arg2_ = arg2; }
   void end() {
     if (!tracer_) return;
-    tracer_->add({t0_, omp_get_wtime(), arg_, cpu_, kind_});
+    tracer_->add({t0_, omp_get_wtime(), arg_, cpu_, kind_, arg2_});
     tracer_ = nullptr;
   }
 
@@ -136,6 +139,7 @@ class TraceSpan {
   Tracer* tracer_;
   double t0_ = 0;
   uint64_t arg_;
+  uint64_t arg2_ = 0;
   uint32_t cpu_ = 0;
   TraceKind kind_;
 };

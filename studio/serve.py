@@ -133,7 +133,8 @@ def do_run(binary, body):
     out.mkdir(parents=True)
     with run_lock:
         timings = train(binary, path, vocab, threads, merge, out,
-                        [*extra, "--trace", str(out / "trace.json")])
+                        [*extra, "--trace", str(out / "trace.json"),
+                         "--trace-words", str(out / "words.json")])
         ref_sha, cached = reference(binary, path, vocab)
     digest = sha256(out / "merges.txt")
     summary = {"id": run_id, "input": path.name, "vocab_size": vocab, "threads": threads,
@@ -230,7 +231,8 @@ class Handler(http.server.BaseHTTPRequestHandler):
             return self.send(200, {"runs": list_runs()})
         if route == "/api/runs/latest":
             return self.send(200, {"run": latest_run()})
-        m = re.fullmatch(r"/api/runs/([0-9a-f]{12})/(trace\.json|merges\.txt|run\.json)", route)
+        m = re.fullmatch(r"/api/runs/([0-9a-f]{12})/(trace\.json|words\.json|merges\.txt|run\.json)",
+                         route)
         if m and (RUNS / m[1] / m[2]).is_file():
             ctype = ("text/plain; charset=utf-8" if m[2].endswith(".txt")
                      else "application/json; charset=utf-8")

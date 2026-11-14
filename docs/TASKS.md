@@ -33,6 +33,7 @@ Work through the tasks in **pick-up order**. A task can start once everything in
 | 23 | S9 Report | ✅ draft built (`report/report.pdf`); student's review pending | S8, B7 |
 | 24 | B8 `--merge-threads auto` (phase 3 on P-cores; replaces the TinyStories fallback idea) | ✅ code + tests; benchmark needs **mains power** | S8, B6 |
 | 25 | B9 Studio: the race (two or three recorded runs replayed on one clock, with a core map) | ✅ | B7, B8 |
+| 26 | B10 Studio: the work (corpus work units, real words rewritten per thread) | ✅ | B6, B7 |
 | — | N5 Get big-machine access (optional) | ⬜ **human task** | — |
 
 ---
@@ -411,6 +412,19 @@ flag and "N× faster than A"; a badge checks every lane's `merges.txt` sha256 is
   (the teaching note), `docs/notes/demo.md` step 7.
 - **Done (2026-11-13).** 12/12 server tests; validation mutation caught; verified headless on wikitext.10M (see
   HANDOFF B9). Not covered: a browser-level test of the JS (none exists for Studio).
+
+### B10: Studio, the work
+Added 2026-11-13 at the user's request ("a visualizer that shows the work"): the replay clock drawn on the data.
+- Phase 1: one cell per work unit in corpus order, outlined while being pre-tokenized, filled when done; units per
+  thread. Needs the unit index: `PRETOK_UNIT` events now carry `"unit"` (`TraceEvent::arg2`, `trace_arg2_name`).
+- Phase 3: `--trace-words FILE` (`src/trace_words.{hpp,cpp}`) writes the 400 most frequent words of 4+ bytes with
+  their IncrBatch owner (`hashed_owner`, `batch_owner_count` now shared with the engine). Studio replays merges.txt on
+  them and reads from the trace which thread ran each owner per round.
+- **Done (2026-11-13).** `tests/unit/test_trace_words.cpp` (3 tests). Mutations caught: owners computed from the
+  outer config instead of the merge team; unit index not recorded. Studio's final word tokens equal
+  `bpe_ref.encode` for all 400 words (wikitext.10M v4000, wikitext.full v32k). Contradiction reported: the planned
+  P/E colouring of phase 1 was dropped, because units that started on an E-core took as long as P-core ones (threads
+  migrate within a 17 ms unit); the card prints that measurement instead. Notes: `docs/notes/work_view.md`.
 
 ## N5 (human)
 - **N5 (optional):** only if time and budget allow, rent a machine with ≥16 *physical* cores for an extra scaling

@@ -42,6 +42,7 @@ Sanitizer builds: `-DPARABPE_ASAN=ON`, or `-DPARABPE_TSAN=ON` (use clang with LL
 | `--par-threshold-tokens` | IncrPar, incr-batch: minimum tokens touched in a step before the work is split across threads |
 | `--verify-batches` | incr-batch: check every member against a sequential oracle |
 | `--batch-full-rounds` | incr-batch: batch every round, even ones too small to go parallel (the span figures) |
+| `--trace-words FILE` | The 400 most frequent words (4+ bytes) with their phase-3 owner, as JSON (for Studio) |
 | `--trace FILE` | Chrome Trace Event JSON of phases 1 and 3 per thread, with the sampled CPU and P/E core; open in ui.perfetto.dev, summarise with `scripts/trace_summary.py` |
 
 ## ParaBPE Studio
@@ -55,7 +56,7 @@ merges landing and the span curve, checks `merges.txt` against an IncrSerial ref
 `results/*.csv`, and encodes a sentence with Hugging Face `tokenizers` (needs `.venv`). **The race** replays two or
 three recorded runs side by side on one clock (IncrSerial on 1 thread against incr-batch with `--merge-threads auto`),
 with a core map of the M3 Pro lighting up per lane; what it shows and what it doesn't is in
-[docs/notes/race.md](docs/notes/race.md). The server listens on 127.0.0.1 only and accepts only `*.txt` files
+[docs/notes/race.md](docs/notes/race.md). **The work** shows the same replay on the data: the corpus's work units filling in, then real words of the run fusing round by round, grouped by the thread that rewrote them ([docs/notes/work_view.md](docs/notes/work_view.md)). The server listens on 127.0.0.1 only and accepts only `*.txt` files
 directly under `data/`. The demo script is in [docs/notes/demo.md](docs/notes/demo.md).
 
 ## Layout
@@ -99,4 +100,5 @@ report/            LaTeX report
 | B7 | ParaBPE Studio | ✅ `studio/`, demo in `docs/notes/demo.md` |
 | S9 | Report | ✅ draft: `report/report.pdf` (student review pending) |
 | B9 | Studio: the race (lockstep replay + core map) | ✅ `docs/notes/race.md` |
+| B10 | Studio: the work (work units, real words rewritten per thread) | ✅ `docs/notes/work_view.md` |
 | B8 | `--merge-threads auto` (phase 3 on P-cores) | ✅ code + tests; benchmark pending mains power |

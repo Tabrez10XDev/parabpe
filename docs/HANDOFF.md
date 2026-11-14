@@ -448,6 +448,15 @@ awake**: `.venv/bin/python -I bench/run_bench.py bench/configs/<name>.yaml --req
   is a baseline effect (see the B8 card). Replaced by a report correction.
 - Equivalence matrix incl. 16 mixed cases: 0 mismatches on both 10 MB slices.
 
+### B10 (2026-11-13)
+- Studio card **The work**: phase-1 work units (corpus order, per-thread counts) and phase-3 real words rewritten per
+  round, by the thread that ran their owner. Details and what it doesn't show: `docs/notes/work_view.md`.
+- Trace format: `PRETOK_UNIT` gains `"unit"` (second argument; other kinds unchanged). New `--trace-words FILE`
+  (written after the clock stops; merges unchanged). `serve.py` passes it and serves `words.json`.
+- Measured on wikitext.full, 11 threads: 508 units, 45–47 per thread; units that started on an E-core took a median
+  15.7 ms against 17.3 ms on a P-core. So start-of-event core samples are weak for long events. The race's and
+  swimlanes' phase-1 P/E labels carry the same caveat; phase-3 events are microseconds long.
+
 ### B9 (2026-11-13)
 - Studio gained **the race**: 2–3 finished runs on the same corpus and vocab replayed on one clock (lane A = baseline),
   each with a progress bar (merges landed: traced rounds for incr-batch, spread evenly over the measured phase 3 for

@@ -73,6 +73,7 @@ class OmpPreTokenizer final : public PreTokenizer {
           size_t bytes = 0;
           for (std::string_view doc : units[u].docs) bytes += doc.size();
           span.set_arg(bytes);
+          span.set_arg2(static_cast<uint64_t>(u));
         }
         try {
           for (std::string_view doc : units[u].docs) {

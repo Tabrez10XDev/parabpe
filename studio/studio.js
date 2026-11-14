@@ -161,7 +161,11 @@ async function loadRun(run) {
   buildKindTable();
   buildSpan();
   setBadge('pending');
-  if (HASH.has('end')) { S.t = S.view[1]; render(); }  // a still of the finished run
+  loadWork(run);
+  // Stills: #end for the finished run, #at=0.4 for 40% of the way through the view.
+  const at = [...HASH].find((h) => h.startsWith('at='));
+  if (HASH.has('end')) { S.t = S.view[1]; render(); }
+  else if (at) { S.t = S.view[0] + Math.min(1, Math.max(0, +at.slice(3) || 0)) * (S.view[1] - S.view[0]); render(); }
 }
 
 // A Chrome-trace file as per-thread lanes, incr-batch rounds and the phase windows (µs from the
@@ -178,13 +182,14 @@ function parseTrace(trace, run) {
     const args = e.args || {};
     const argName = Object.keys(args)[0];
     lanes[e.tid].ev.push({ t0: e.ts, t1: e.ts + e.dur, k, g: GROUP_OF[e.name], argName,
-      arg: args[argName], cpu: args.cpu, e: args.core === 'E' });
+      arg: args[argName], cpu: args.cpu, e: args.core === 'E', unit: args.unit });
     tmax = Math.max(tmax, e.ts + e.dur);
     if (args.cpu !== undefined) maxCpu = Math.max(maxCpu, args.cpu);
   }
   for (const lane of lanes) lane.ev.sort((a, b) => a.t0 - b.t0 || b.t1 - a.t1);
 
   // Rounds (incr-batch): SELECT i picks round i's merges; they land when its ORDER_UPDATE ends.
+  // Between the two the words are rewritten: by owners in parallel, or by the master alone.
   const master = lanes[0].ev;
   const selects = master.filter((e) => KINDS[e.k] === 'SELECT');
   const orders = master.filter((e) => KINDS[e.k] === 'ORDER_UPDATE');
@@ -192,7 +197,8 @@ function parseTrace(trace, run) {
   let done = 0;
   selects.forEach((s, i) => {
     if (!s.arg) return;
-    rounds.push({ k: s.arg, start: done, t: orders[i] ? orders[i].t1 : s.t1 });
+    rounds.push({ k: s.arg, start: done, t: orders[i] ? orders[i].t1 : s.t1, rewrite: [s.t1,
+      orders[i] ? orders[i].t0 : s.t1] });
     done += s.arg;
   });
 
@@ -487,7 +493,9 @@ function render() {
     S.landed = landed;
     renderFeed(landed);
     updateSpan(landed);
+    renderWords(landed);
   }
+  drawUnits();
   setBadge(finished ? (S.run.identical ? 'ok' : 'bad') : 'pending');
 }
 
@@ -856,6 +864,349 @@ $('hf-form').addEventListener('submit', async (ev) => {
   }
 });
 
+// ---------- the work (B10) ----------
+// The replay clock shown on the data. Phase 1: the corpus as its work units, coloured by where
+// each was pre-tokenized. Phase 3: real words of this run (--trace-words) rewritten round by round,
+// grouped by the thread that ran their owner. Word states come from replaying merges.txt on the
+// words' bytes: that is exactly what training does to every word, one merge at a time.
+const W = { units: [], words: null, rounds: [], note: '', shown: -1, cells: null };
+const WALL_WORDS = 60;
+
+// GPT-2's byte <-> printable character map (merges.txt is written in it).
+const BYTE_CHAR = (() => {
+  const bs = [];
+  for (let b = 33; b <= 126; ++b) bs.push(b);
+  for (let b = 161; b <= 172; ++b) bs.push(b);
+  for (let b = 174; b <= 255; ++b) bs.push(b);
+  const cs = bs.slice();
+  let n = 0;
+  for (let b = 0; b < 256; ++b) if (!bs.includes(b)) { bs.push(b); cs.push(256 + n++); }
+  const m = new Array(256);
+  bs.forEach((b, i) => { m[b] = String.fromCodePoint(cs[i]); });
+  return m;
+})();
+const CHAR_BYTE = new Map(BYTE_CHAR.map((c, b) => [c, b]));
+const UTF8 = new TextDecoder('utf-8', { fatal: true });
+// A token as readable text: its bytes decoded as UTF-8 (a leading space shown as ␣), or the GPT-2
+// characters when the token ends inside a multi-byte character.
+function tokenText(tok) {
+  try {
+    const s = UTF8.decode(Uint8Array.from([...tok].map((c) => CHAR_BYTE.get(c))));
+    return s.replace(/^ /, '␣').replace(/\n/g, '⏎');
+  } catch {
+    return tok;
+  }
+}
+
+async function loadWork(run) {
+  W.units = [];
+  W.words = null;
+  W.rounds = [];
+  W.shown = -1;
+  for (const lane of S.lanes) {
+    for (const e of lane.ev) {
+      if (KINDS[e.k] === 'PRETOK_UNIT' && e.unit !== undefined) W.units.push({ ...e, tid: lane.tid });
+    }
+  }
+  W.units.sort((a, b) => a.unit - b.unit);
+  W.note = W.units.length ? unitSummary(W.units) : run.threads > 1
+    ? 'This trace predates per-unit indices: train the run again to see its work units.'
+    : 'One thread with the serial pre-tokenizer: the corpus is read in one pass, not traced per unit.';
+  layoutUnits();
+  renderUnitsPerThread();
+  if (run.merge !== 'incr-batch' || !S.rounds.length) {
+    W.wordsNote = 'The word view needs an incr-batch run: its rounds and owners are traced.';
+  } else {
+    try {
+      const data = await getJSON(`/api/runs/${run.id}/words.json`);
+      if (S.run !== run) return;  // another run was loaded meanwhile
+      buildWords(data);
+      W.wordsNote = '';
+    } catch {
+      W.wordsNote = 'This run has no words.json (trained before B10): train it again to see its words.';
+    }
+  }
+  S.landed = -1;
+  render();
+}
+
+// Replays merges.txt on the sampled words and records, per round, which words changed and on
+// which thread (the thread that ran the word's owner that round; the master in a serial round).
+function buildWords(data) {
+  const words = data.words.map((d) => ({
+    ...d, tok: d.hex.match(/../g).map((h) => BYTE_CHAR[parseInt(h, 16)]), hist: [] }));
+  for (const w of words) w.tok0 = w.tok;
+  const index = new Map();
+  const pairs = (i, f) => {
+    const t = words[i].tok;
+    for (let j = 0; j + 1 < t.length; ++j) f(`${t[j]} ${t[j + 1]}`);
+  };
+  const add = (i) => pairs(i, (k) => { let s = index.get(k); if (!s) index.set(k, (s = new Set())); s.add(i); });
+  const del = (i) => pairs(i, (k) => { const s = index.get(k); if (s) s.delete(i); });
+  words.forEach((_, i) => add(i));
+  S.merges.forEach((line, m) => {
+    const hit = index.get(line);
+    if (!hit || !hit.size) return;
+    const sp = line.indexOf(' '), a = line.slice(0, sp), b = line.slice(sp + 1);
+    for (const i of [...hit]) {
+      const before = words[i].tok, out = [];
+      for (let j = 0; j < before.length;) {
+        if (j + 1 < before.length && before[j] === a && before[j + 1] === b) { out.push(a + b); j += 2; }
+        else out.push(before[j++]);
+      }
+      del(i);
+      words[i].tok = out;
+      add(i);
+      words[i].hist.push({ m, tok: out });
+    }
+  });
+
+  // Owner -> thread per round, from the OWNER_MERGE events inside the round's rewrite window.
+  const ownerEv = [];
+  for (const lane of S.lanes) {
+    for (const e of lane.ev) if (KINDS[e.k] === 'OWNER_MERGE') ownerEv.push({ ...e, tid: lane.tid });
+  }
+  ownerEv.sort((x, y) => x.t0 - y.t0);
+  const master = S.lanes[0].ev.filter((e) => KINDS[e.k] === 'SERIAL_APPLY');
+  const firstAtOrAfter = (arr, t) => {
+    let lo = 0, hi = arr.length;
+    while (lo < hi) { const md = (lo + hi) >> 1; if (arr[md].t0 < t) lo = md + 1; else hi = md; }
+    return lo;
+  };
+  const roundOf = (m) => {
+    let lo = 0, hi = S.rounds.length;
+    while (lo < hi) { const md = (lo + hi) >> 1; if (S.rounds[md].start <= m) lo = md + 1; else hi = md; }
+    return lo - 1;
+  };
+  const rounds = new Map();
+  words.forEach((w, i) => {
+    let prev = w.tok0;
+    for (const h of w.hist) {
+      const r = roundOf(h.m);
+      if (!rounds.has(r)) rounds.set(r, new Map());
+      const ch = rounds.get(r);
+      if (!ch.has(i)) ch.set(i, { i, before: prev });
+      ch.get(i).after = h.tok;
+      prev = h.tok;
+    }
+  });
+  W.rounds = [...rounds.keys()].sort((x, y) => x - y).map((r) => {
+    const [t0, t1] = S.rounds[r].rewrite;
+    const byOwner = new Map();
+    for (let j = firstAtOrAfter(ownerEv, t0); j < ownerEv.length && ownerEv[j].t0 <= t1; ++j) {
+      byOwner.set(ownerEv[j].arg, ownerEv[j]);
+    }
+    const serial = byOwner.size === 0;
+    const sa = serial ? master[Math.max(0, firstAtOrAfter(master, t0))] : null;
+    const changes = [...rounds.get(r).values()].map((c) => {
+      const ev = serial ? sa : byOwner.get(words[c.i].owner);
+      return { ...c, tid: serial ? 0 : ev ? ev.tid : null, cpu: ev ? ev.cpu : undefined, e: ev ? ev.e : false };
+    });
+    return { r, serial, changes };
+  });
+  W.words = words;
+  W.mergeThreads = data.merge_threads;
+}
+
+// The latest round with a word change that has landed by `landed` rounds.
+function shownRound(landed) {
+  let lo = 0, hi = W.rounds.length;
+  while (lo < hi) { const m = (lo + hi) >> 1; if (W.rounds[m].r < landed) lo = m + 1; else hi = m; }
+  return lo - 1;
+}
+function tokensAt(w, mergesDone) {
+  let tok = w.tok0;
+  for (const h of w.hist) { if (h.m >= mergesDone) break; tok = h.tok; }
+  return tok;
+}
+// A word as token boxes. With `prev`, tokens that did not exist at the same place in prev (the
+// ones this round created) are marked.
+function chipsFor(tok, cls = '', prev = null) {
+  const word = el('span', { class: `word ${cls}`.trim() });
+  const old = new Set();
+  if (prev) { let o = 0; for (const t of prev) { old.add(`${o}:${t}`); o += t.length; } }
+  let o = 0;
+  for (const t of tok) {
+    word.append(el('span', { class: prev && !old.has(`${o}:${t}`) ? 'tok new' : 'tok' }, tokenText(t)));
+    o += t.length;
+  }
+  return word;
+}
+
+function renderWords(landed) {
+  const lanesHost = $('round-lanes'), wall = $('word-wall'), label = $('round-label');
+  if (!W.words) {
+    lanesHost.replaceChildren(el('p', { class: 'muted' }, W.wordsNote || 'Loading words…'));
+    wall.replaceChildren();
+    label.textContent = '';
+    for (const id of ['round-prev', 'round-next']) $(id).disabled = true;
+    return;
+  }
+  const mergesDone = landed ? S.rounds[landed - 1].start + S.rounds[landed - 1].k : 0;
+  const si = shownRound(landed);
+  W.shown = si;
+  $('round-prev').disabled = si <= 0;
+  $('round-next').disabled = si + 1 >= W.rounds.length;
+  const shown = si >= 0 ? W.rounds[si] : null;
+  const hitTid = new Map();
+
+  // This round, one row per thread that rewrote a sampled word.
+  lanesHost.replaceChildren();
+  if (!shown) {
+    lanesHost.append(el('p', { class: 'muted' }, 'No sampled word has been rewritten yet. Press Play, or step to the next round.'));
+    label.textContent = '';
+  } else {
+    const R = S.rounds[shown.r];
+    label.textContent = `Round ${fmt(shown.r + 1)} of ${fmt(S.rounds.length)} · ${R.k} merge${R.k > 1 ? 's' : ''} · `
+      + (shown.serial ? 'small round: the master rewrote every word alone'
+        : `parallel: owners rewritten on ${W.mergeThreads} threads`);
+    const byTid = new Map();
+    for (const c of shown.changes) {
+      hitTid.set(c.i, c.tid);
+      if (!byTid.has(c.tid)) byTid.set(c.tid, []);
+      byTid.get(c.tid).push(c);
+    }
+    for (const tid of [...byTid.keys()].sort((a, b) => a - b)) {
+      const list = byTid.get(tid), row = el('div', { class: 'round-lane' });
+      const core = S.coreLabels && list[0].cpu !== undefined ? ` · ${list[0].e ? 'E' : 'P'}-core` : '';
+      row.append(el('span', { class: 'lane-label' }, tid === null ? '?' : `t${tid}${core}`));
+      const items = el('div', { class: 'lane-items' });
+      for (const c of list.slice(0, 6)) {
+        const item = el('span', { class: 'rewrite' });
+        item.append(chipsFor(c.before), el('span', { class: 'arrow', 'aria-hidden': 'true' }, '→'), chipsFor(c.after, 'after', c.before));
+        items.append(item);
+      }
+      if (list.length > 6) items.append(el('span', { class: 'muted small' }, `+${list.length - 6} more`));
+      row.append(items);
+      lanesHost.append(row);
+    }
+  }
+
+  // The wall: the most frequent words as they stand now; this round's changes marked.
+  wall.replaceChildren();
+  for (let i = 0; i < Math.min(WALL_WORDS, W.words.length); ++i) {
+    const w = W.words[i];
+    const tok = tokensAt(w, mergesDone);
+    const hit = hitTid.has(i);
+    const box = chipsFor(tok, `${hit ? 'hit' : ''} ${tok.length === 1 ? 'whole' : ''}`);
+    box.title = `${fmt(w.count)} occurrences · ${tok.length} token${tok.length > 1 ? 's' : ''}`
+      + (w.owner >= 0 ? ` · owner ${w.owner}` : '');
+    if (hit) box.append(el('small', { class: 'by' }, hitTid.get(i) === null ? '?' : `t${hitTid.get(i)}`));
+    wall.append(box);
+  }
+  const whole = W.words.slice(0, WALL_WORDS).filter((w) => tokensAt(w, mergesDone).length === 1).length;
+  $('wall-count').textContent = `${whole} of ${Math.min(WALL_WORDS, W.words.length)} are single tokens`;
+}
+
+function stepRound(dir) {
+  if (!W.words) return;
+  const target = W.shown + dir;
+  if (target < 0 || target >= W.rounds.length) return;
+  stop();
+  const R = S.rounds[W.rounds[target].r];
+  if (R.t < S.view[0] || R.t > S.view[1]) { $('view').value = 'all'; setView(); }
+  S.t = R.t;
+  render();
+}
+$('round-prev').addEventListener('click', () => stepRound(-1));
+$('round-next').addEventListener('click', () => stepRound(1));
+
+// What the unit events say, measured: sizes, times, and how little the start-of-unit core sample
+// predicts (threads move between cores during a unit).
+function unitSummary(units) {
+  const ms = (xs) => (median(xs) / 1000).toFixed(1);
+  const dur = units.map((u) => u.t1 - u.t0), mb = units.reduce((s, u) => s + u.arg, 0) / 1e6;
+  let text = `${units.length} units, ${mb.toFixed(0)} MB; median ${ms(dur)} ms per unit.`;
+  const P = units.filter((u) => !u.e).map((u) => u.t1 - u.t0), E = units.filter((u) => u.e).map((u) => u.t1 - u.t0);
+  if (S.coreLabels && P.length && E.length) {
+    text += ` ${Math.round(100 * E.length / units.length)}% of units started on an E-core, yet they took about as`
+      + ` long (median ${ms(E)} ms) as those that started on a P-core (${ms(P)} ms): a unit is long enough for`
+      + ' macOS to move its thread between core types, so the start sample says little about where the work ran.';
+  }
+  return text;
+}
+
+// Phase 1 grid: one cell per work unit, in corpus order.
+const CELL = 12, CELL_GAP = 2;
+function layoutUnits() {
+  const canvas = $('units'), w = canvas.parentElement.clientWidth;
+  const n = W.units.length;
+  const cols = Math.max(1, Math.floor((w + CELL_GAP) / (CELL + CELL_GAP)));
+  const rows = n ? Math.ceil(n / cols) : 0;
+  const h = rows ? rows * (CELL + CELL_GAP) : 0;
+  const dpr = window.devicePixelRatio || 1;
+  canvas.width = Math.round(w * dpr);
+  canvas.height = Math.round(h * dpr);
+  canvas.style.height = `${h}px`;
+  W.cols = cols;
+  $('units-note').textContent = W.note;
+  drawUnits();
+}
+function drawUnits() {
+  const canvas = $('units');
+  if (!canvas.height) return;
+  const ctx = canvas.getContext('2d'), C = S.colors, dpr = window.devicePixelRatio || 1;
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  ctx.clearRect(0, 0, canvas.width / dpr, canvas.height / dpr);
+  const t = S.t;
+  W.units.forEach((u, i) => {
+    const x = (i % W.cols) * (CELL + CELL_GAP), y = Math.floor(i / W.cols) * (CELL + CELL_GAP);
+    if (t >= u.t1) {
+      ctx.fillStyle = C.groups[0];
+      ctx.beginPath(); ctx.roundRect(x, y, CELL, CELL, 2); ctx.fill();
+    } else if (t >= u.t0) {
+      ctx.fillStyle = C.surface;
+      ctx.beginPath(); ctx.roundRect(x + 0.75, y + 0.75, CELL - 1.5, CELL - 1.5, 2); ctx.fill();
+      ctx.strokeStyle = C.ink;
+      ctx.lineWidth = 1.5;
+      ctx.stroke();
+      ctx.lineWidth = 1;
+    } else {
+      ctx.fillStyle = C.grid;
+      ctx.beginPath(); ctx.roundRect(x, y, CELL, CELL, 2); ctx.fill();
+    }
+  });
+  renderUnitsPerThread();
+}
+// Units finished per thread by now: dynamic scheduling hands more units to faster cores.
+function renderUnitsPerThread() {
+  const host = $('units-per-thread');
+  if (!W.units.length) { host.replaceChildren(); return; }
+  const n = S.lanes.length, done = new Array(n).fill(0), all = new Array(n).fill(0);
+  for (const u of W.units) {
+    all[u.tid] += 1;
+    if (S.t >= u.t1) done[u.tid] += 1;
+  }
+  const max = Math.max(...all, 1);
+  if (!host.childElementCount || host.childElementCount !== n) {
+    host.replaceChildren();
+    for (let tid = 0; tid < n; ++tid) {
+      const row = el('div', { class: 'pt-row' });
+      row.append(el('span', { class: 'pt-label' }), el('span', { class: 'pt-bar' }), el('span', { class: 'pt-n tabular' }));
+      host.append(row);
+    }
+  }
+  [...host.children].forEach((row, tid) => {
+    row.children[0].textContent = `t${tid}`;
+    row.children[1].style.width = `${(100 * done[tid] / max).toFixed(1)}%`;
+    row.children[2].textContent = `${done[tid]} / ${all[tid]}`;
+  });
+}
+$('units').addEventListener('mousemove', (ev) => {
+  const tip = $('units-tip');
+  const r = ev.target.getBoundingClientRect(), x = ev.clientX - r.left, y = ev.clientY - r.top;
+  const col = Math.floor(x / (CELL + CELL_GAP)), row = Math.floor(y / (CELL + CELL_GAP));
+  const u = col < W.cols ? W.units[row * W.cols + col] : null;
+  if (!u) { tip.hidden = true; return; }
+  const core = S.coreLabels ? ` (${u.e ? 'E' : 'P'}-core)` : '';
+  tip.replaceChildren(el('b', {}, `Work unit ${u.unit}`), ` · ${(u.arg / 1e6).toFixed(2)} MB`, el('br'),
+    `thread ${u.tid} · cpu ${u.cpu}${core}`, el('br'), `${fmtTime(u.t1 - u.t0)}, from ${fmtTime(u.t0)}`);
+  tip.hidden = false;
+  tip.style.left = `${Math.min(x + 14, ev.target.clientWidth - tip.offsetWidth - 4)}px`;
+  tip.style.top = `${y + 14}px`;
+});
+$('units').addEventListener('mouseleave', () => { $('units-tip').hidden = true; });
+
 // ---------- the race (B9) ----------
 // Two or three recorded runs replayed side by side on one clock. Lane A is the baseline.
 const RACE = { lanes: [], runs: [], t: 0, end: 0, playing: false, last: 0, ids: [] };
@@ -1151,13 +1502,14 @@ $('theme').addEventListener('click', () => {
   root.dataset.theme = dark ? 'light' : 'dark';
   readColors();
   draw();
+  drawUnits();
 });
-matchMedia('(prefers-color-scheme: dark)').addEventListener('change', () => { readColors(); draw(); });
+matchMedia('(prefers-color-scheme: dark)').addEventListener('change', () => { readColors(); draw(); drawUnits(); });
 let resizeTimer = 0;
 window.addEventListener('resize', () => {
   clearTimeout(resizeTimer);
   resizeTimer = setTimeout(() => {
-    if (S.lanes.length) { layoutLanes(); draw(); buildSpan(); S.landed = -1; render(); }
+    if (S.lanes.length) { layoutLanes(); draw(); buildSpan(); layoutUnits(); S.landed = -1; render(); }
     if (BENCH.rows.length) drawBench();
   }, 150);
 });

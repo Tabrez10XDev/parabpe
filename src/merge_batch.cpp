@@ -194,7 +194,7 @@ class BatchEngine final : public MergeEngine {
     std::vector<Owner> owners;
     ShardedCounts counts;
     if (par) {
-      owners = partition_words_hashed(table, cfg.owners_per_thread * cfg.threads);
+      owners = partition_words_hashed(table, batch_owner_count(cfg));
       count_parallel(table, owners, counts, cfg.threads);
     } else {
       owners = partition_words(table, 1);

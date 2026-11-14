@@ -17,6 +17,8 @@ constexpr const char* kNames[kTraceKinds] = {"CHUNK",      "PRETOK_UNIT",  "SHAR
                                              "ZERO_SWEEP", "ORDER_UPDATE"};
 constexpr const char* kArgNames[kTraceKinds] = {"bytes",  "bytes", "shard", "merges",
                                                 "merges", "owner", "owner", "changed_pairs"};
+constexpr const char* kArg2Names[kTraceKinds] = {nullptr, "unit",  nullptr, nullptr,
+                                                 nullptr, nullptr, nullptr, nullptr};
 constexpr const char* kCategories[kTraceKinds] = {"phase1", "phase1", "reduce", "phase3",
                                                   "phase3", "phase3", "phase3", "phase3"};
 
@@ -57,6 +59,10 @@ const char* trace_name(TraceKind kind) {
 }
 const char* trace_arg_name(TraceKind kind) {
   return kArgNames[static_cast<int>(kind)];
+}
+
+const char* trace_arg2_name(TraceKind kind) {
+  return kArg2Names[static_cast<int>(kind)];
 }
 
 Tracer::Tracer(int threads) : buffers_(threads > 0 ? threads : 1), origin_(omp_get_wtime()) {}
@@ -103,6 +109,9 @@ void Tracer::write_json(const std::string& path) const {
                             kNames[k], kCategories[k], t, ts, dur > 0 ? dur : 0.0, kArgNames[k],
                             static_cast<unsigned long long>(e.arg), e.cpu);
       out.write(line, n);
+      if (kArg2Names[k]) {
+        out << ", \"" << kArg2Names[k] << "\": " << static_cast<unsigned long long>(e.arg2);
+      }
       if (cores.e_cores >= 0) {
         out << ", \"core\": \"" << (static_cast<int>(e.cpu) < cores.e_cores ? 'E' : 'P') << "\"";
       }

@@ -121,10 +121,18 @@ inline uint64_t mix64(uint64_t x) {  // splitmix64 finalizer
 // Splits the words into n owners by a hash of their block of 16 neighbours. The word table is
 // sorted by bytes, so contiguous owners cluster the words of a pair in one owner (B0 measured
 // busiest/mean 2.30 at 5 threads against 1.08 here); a whole block stays together for locality.
+inline size_t hashed_owner(uint32_t w, size_t n) { return mix64(w >> 4) % n; }
+
 inline std::vector<Owner> partition_words_hashed(const WordTable& t, size_t n) {
   std::vector<Owner> owners(n);
-  for (uint32_t w = 0; w < t.size(); ++w) owners[mix64(w >> 4) % n].words.push_back(w);
+  for (uint32_t w = 0; w < t.size(); ++w) owners[hashed_owner(w, n)].words.push_back(w);
   return owners;
+}
+
+// How many owners IncrBatch splits the words into for this (phase 3) config: hashed owners with
+// threads, one contiguous owner without (word w then belongs to owner 0 = hashed_owner(w, 1)).
+inline size_t batch_owner_count(const TrainConfig& cfg) {
+  return cfg.threads > 1 ? cfg.owners_per_thread * static_cast<size_t>(cfg.threads) : 1;
 }
 
 // Phase 2, serial (S3): one owner, one shard.

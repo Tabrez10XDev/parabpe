@@ -10,6 +10,7 @@
 #include "parabpe/merge_engine.hpp"
 #include "parabpe/pretokenizer.hpp"
 #include "trace.hpp"
+#include "trace_words.hpp"
 
 #ifdef __APPLE__
 #include <sys/sysctl.h>
@@ -55,6 +56,9 @@ TrainResult run_pipeline(std::string_view text, const TrainConfig& cfg, double t
   r.vocab = build_vocab(r.merges, cfg.special_tokens);
   r.timings.total = omp_get_wtime() - t0;
   trace.finish();  // after the clock stops: writing the file is not part of the run
+  if (!cfg.trace_words_path.empty()) {
+    detail::write_trace_words(cfg.trace_words_path, counts, cfg.merge, merge_cfg);
+  }
   return r;
 }
 

@@ -89,6 +89,8 @@ int main(int argc, char** argv) {
   tr->add_flag("!--batch-full-rounds", cfg.batch_skip_small,
                "incr-batch: batch every round, even ones too small to go parallel (span figures)");
   tr->add_option("--trace", cfg.trace_path, "Write a Chrome Trace Event JSON file (ui.perfetto.dev)");
+  tr->add_option("--trace-words", cfg.trace_words_path,
+                 "Write the most frequent words (4+ bytes) with their phase-3 owner as JSON (Studio)");
   auto* special_opt = tr->add_option("--special", specials,
                                      "Special token, repeatable (default: <|endoftext|>)")
                           ->allow_extra_args(false);

@@ -60,6 +60,7 @@ struct TrainConfig {
   size_t batch_scan_cap = 4096;        // IncrBatch: live tie-group entries scanned per round
   bool batch_skip_small = true;  // IncrBatch: a round too small to go parallel merges one pair
   std::string trace_path;        // --trace: Chrome Trace JSON output, empty = off
+  std::string trace_words_path;  // --trace-words: frequent words + their owners (Studio), empty = off
 };
 
 // Output of phase 1: unique pre-tokens (raw bytes) and their frequencies.

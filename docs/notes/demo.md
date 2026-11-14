@@ -43,7 +43,12 @@ measured value is used and the difference is listed at the end.
    P-cores, so no round waits for an efficiency core." At the flag: "3.9× on the whole run (measured: `results/`),
    and the badge says both wrote the same `merges.txt`." Tick "add lane C" for the before/after of
    `--merge-threads auto` at 11 threads. What the picture does and doesn't show: `docs/notes/race.md`.
-8. **Hugging Face** (Load into tokenizers, Encode). "The merges load into HF `tokenizers` and give the same token ids
+8. **The work** (card under Replay; same Play button). "Phase 1 on the data: each square is a megabyte of
+   Wikipedia; eleven threads take the next square as soon as they finish one, so the work spreads evenly." Then
+   press Next round a few times: "Phase 3 on real words. In this round five threads rewrote these words in
+   parallel, each its own set of words, and the underlined token is the one the round created." Point at the wall:
+   "the 60 most common words, going from bytes to whole tokens."
+9. **Hugging Face** (Load into tokenizers, Encode). "The merges load into HF `tokenizers` and give the same token ids
    as our Python reference encoder." In a terminal, the long version:
    `.venv/bin/python -I tests/interop/check_hf.py --model runs/studio/<id> --heldout data/wikitext.10M.txt`.
 
