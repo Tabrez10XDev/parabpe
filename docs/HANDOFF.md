@@ -448,6 +448,18 @@ awake**: `.venv/bin/python -I bench/run_bench.py bench/configs/<name>.yaml --req
   is a baseline effect (see the B8 card). Replaced by a report correction.
 - Equivalence matrix incl. 16 mixed cases: 0 mismatches on both 10 MB slices.
 
+### B9 (2026-11-13)
+- Studio gained **the race**: 2–3 finished runs on the same corpus and vocab replayed on one clock (lane A = baseline),
+  each with a progress bar (merges landed: traced rounds for incr-batch, spread evenly over the measured phase 3 for
+  the serial engines), a phase label, a clock, and an 11-tile core map (P row cpus 6–10, E row 0–5) lit from the
+  trace's sampled CPUs over a 0.5 % look-back window. Finish: 🏁 + "N× faster than A"; badge = all sha256 equal.
+- `serve.py`: `GET /api/runs` (newest first, 50), `merge_threads` on `/api/run` (`"auto"` or 1–64, parallel engines
+  only). Tests: 3 new in `tests/studio/test_serve.py` (12 total); dropping the validation fails 2 (mutation caught).
+- `parseTrace()` factored out of `loadRun()`; p1End now also uses the measured chunk + pretok time (serial pretok is
+  untraced per unit). URL stills: `#race&at=0.3`, `#race&end`.
+- Verified headless (Chrome `--dump-dom` + screenshots) on wikitext.10M v4000: serial 0.154 s, incr-batch t11+auto
+  0.072 s, t11 0.079 s, all identical; with `auto` only cpus 6–10 light in phase 3. Teaching note: `docs/notes/race.md`.
+
 ## What exists
 | Path | What it is |
 |---|---|

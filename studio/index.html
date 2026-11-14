@@ -68,6 +68,40 @@
     <details class="table-view"><summary>Table: time per event kind</summary><div id="kind-table"></div></details>
   </section>
 
+  <section class="card" id="race-card" aria-labelledby="race-h">
+    <div class="row-head">
+      <h2 id="race-h">The race</h2>
+      <p class="muted">Recorded traces replayed side by side on one clock. Same corpus, same vocabulary; lane A is the baseline.</p>
+    </div>
+    <div class="controls">
+      <label>Lane A <select id="race-a"></select></label>
+      <label>Lane B <select id="race-b"></select></label>
+      <label>Lane C <select id="race-c"></select></label>
+      <button id="race-load" class="ghost" type="button">Load lanes</button>
+      <button id="race-train" type="button">Train race set</button>
+      <label class="check"><input type="checkbox" id="race-third"> add lane C: same threads, merges on all cores</label>
+    </div>
+    <p id="race-status" class="status" role="status"></p>
+    <div class="controls replay-controls">
+      <button id="race-play" type="button" disabled>Play</button>
+      <button id="race-restart" class="ghost" type="button" disabled>Restart</button>
+      <label>Speed <select id="race-speed">
+        <option value="auto" selected>fit to 20 s</option><option value="1">real time</option>
+        <option value="0.1">1/10×</option><option value="0.03333">1/30×</option></select></label>
+      <span id="race-clock" class="muted tabular"></span>
+      <span id="race-badge" class="badge pending" role="status">… same merges.txt? checked at the finish</span>
+    </div>
+    <div id="race-lanes" class="race-lanes"></div>
+    <p class="muted small">"Train race set" uses the Train form's corpus, vocab and threads: A = incr-serial on 1 thread
+      (the baseline every speedup in this project is measured against), B = incr-batch on all threads with
+      <code>--merge-threads auto</code> (phase 3 on the performance cores). Each lane's time is its real wall-clock
+      trace; nothing is sped up or slowed down relative to another lane. A core tile is lit when one of the lane's threads
+      ran a traced event there within the last 0.5% of the race clock (the core is sampled at the event's start: macOS
+      cannot pin threads). The dashed tile marks work that is timed but not traced per event (the serial pre-tokenizer
+      and the serial merge engines); the bar then moves evenly across the measured phase. Full explanation:
+      <code>docs/notes/race.md</code>.</p>
+  </section>
+
   <section class="grid2">
     <div class="card" aria-labelledby="feed-h">
       <h2 id="feed-h">Merges landing</h2>

@@ -114,6 +114,7 @@ async function init() {
     setStatus('run-status', `Server error: ${e.message}`, true);
   }
   loadResults();
+  initRace();
 }
 
 $('run-form').addEventListener('submit', async (ev) => {
@@ -144,49 +145,13 @@ async function loadRun(run) {
   S.run = run;
   S.merges = mergesTxt.split('\n').slice(1).filter((l) => l.length);
   S.totalMerges = S.merges.length;
-  S.coreLabels = 'e_cores' in (trace.otherData || {});
-  const n = trace.otherData.threads;
-  S.lanes = Array.from({ length: n }, (_, tid) => ({ tid, ev: [] }));
-  let tmax = 0;
-  for (const e of trace.traceEvents) {
-    if (e.ph !== 'X') continue;
-    const k = KINDS.indexOf(e.name);
-    if (k < 0 || !S.lanes[e.tid]) continue;
-    const args = e.args || {};
-    const argName = Object.keys(args)[0];
-    S.lanes[e.tid].ev.push({ t0: e.ts, t1: e.ts + e.dur, k, g: GROUP_OF[e.name], argName,
-      arg: args[argName], cpu: args.cpu, e: args.core === 'E' });
-    tmax = Math.max(tmax, e.ts + e.dur);
-  }
-  for (const lane of S.lanes) lane.ev.sort((a, b) => a.t0 - b.t0 || b.t1 - a.t1);
+  const d = parseTrace(trace, run);
+  Object.assign(S, { lanes: d.lanes, rounds: d.rounds, p3: d.p3, end: d.end, coreLabels: d.coreLabels });
 
-  // Rounds (incr-batch): SELECT i picks round i's merges; they land when its ORDER_UPDATE ends.
-  const master = S.lanes[0].ev;
-  const selects = master.filter((e) => KINDS[e.k] === 'SELECT');
-  const orders = master.filter((e) => KINDS[e.k] === 'ORDER_UPDATE');
-  S.rounds = [];
-  let done = 0;
-  selects.forEach((s, i) => {
-    if (!s.arg) return;
-    S.rounds.push({ k: s.arg, start: done, t: orders[i] ? orders[i].t1 : s.t1 });
-    done += s.arg;
-  });
-
-  // Phase 3 window: the first selection, else the end of phase 1 plus the untraced phase 2.
   const tm = run.timings.timings;
-  let p1End = 0;
-  for (const lane of S.lanes) {
-    for (const e of lane.ev) if (e.g === 0) p1End = Math.max(p1End, e.t1);
-  }
-  const firstP3 = Math.min(...S.lanes.flatMap((l) => l.ev.filter((e) => e.g >= 2).map((e) => e.t0)),
-    Infinity);
-  const p3Start = Number.isFinite(firstP3) && run.merge === 'incr-batch' ? firstP3
-    : p1End + (tm.build + tm.pairs) * 1e6;
-  S.p3 = [p3Start, Math.max(p3Start + tm.merge * 1e6, run.merge === 'incr-batch' ? tmax : 0)];
-  S.end = Math.max(tmax, S.p3[1]);
-
   const label = `${run.input}, vocab ${fmt(run.vocab_size)}, ${run.threads} threads, ${run.merge}` +
     (run.full_rounds ? ' (every round batched)' : '') +
+    (run.merge_threads ? ` (merges on ${run.merge_threads_used} threads)` : '') +
     ` · total ${tm.total.toFixed(2)} s, phase 3 ${tm.merge.toFixed(3)} s`;
   $('run-label').textContent = label;
   setStatus('run-status', `Run ${run.id} loaded.`);
@@ -197,6 +162,55 @@ async function loadRun(run) {
   buildSpan();
   setBadge('pending');
   if (HASH.has('end')) { S.t = S.view[1]; render(); }  // a still of the finished run
+}
+
+// A Chrome-trace file as per-thread lanes, incr-batch rounds and the phase windows (µs from the
+// start of the run). Shared by the single-run replay and the race.
+function parseTrace(trace, run) {
+  const tm = run.timings.timings;
+  const other = trace.otherData || {};
+  const lanes = Array.from({ length: other.threads }, (_, tid) => ({ tid, ev: [] }));
+  let tmax = 0, maxCpu = -1;
+  for (const e of trace.traceEvents) {
+    if (e.ph !== 'X') continue;
+    const k = KINDS.indexOf(e.name);
+    if (k < 0 || !lanes[e.tid]) continue;
+    const args = e.args || {};
+    const argName = Object.keys(args)[0];
+    lanes[e.tid].ev.push({ t0: e.ts, t1: e.ts + e.dur, k, g: GROUP_OF[e.name], argName,
+      arg: args[argName], cpu: args.cpu, e: args.core === 'E' });
+    tmax = Math.max(tmax, e.ts + e.dur);
+    if (args.cpu !== undefined) maxCpu = Math.max(maxCpu, args.cpu);
+  }
+  for (const lane of lanes) lane.ev.sort((a, b) => a.t0 - b.t0 || b.t1 - a.t1);
+
+  // Rounds (incr-batch): SELECT i picks round i's merges; they land when its ORDER_UPDATE ends.
+  const master = lanes[0].ev;
+  const selects = master.filter((e) => KINDS[e.k] === 'SELECT');
+  const orders = master.filter((e) => KINDS[e.k] === 'ORDER_UPDATE');
+  const rounds = [];
+  let done = 0;
+  selects.forEach((s, i) => {
+    if (!s.arg) return;
+    rounds.push({ k: s.arg, start: done, t: orders[i] ? orders[i].t1 : s.t1 });
+    done += s.arg;
+  });
+
+  // Phase 1 ends with the last traced phase-1 event, or with the measured chunk + pretok time when
+  // the serial pre-tokenizer (untraced per unit) ran. Phase 3 starts at the first selection, else
+  // after the untraced phase 2.
+  let p1End = 0;
+  for (const lane of lanes) {
+    for (const e of lane.ev) if (e.g === 0) p1End = Math.max(p1End, e.t1);
+  }
+  p1End = Math.max(p1End, (tm.chunk + tm.pretok) * 1e6);
+  const firstP3 = Math.min(...lanes.flatMap((l) => l.ev.filter((e) => e.g >= 2).map((e) => e.t0)),
+    Infinity);
+  const p3Start = Number.isFinite(firstP3) && run.merge === 'incr-batch' ? firstP3
+    : p1End + (tm.build + tm.pairs) * 1e6;
+  const p3 = [p3Start, Math.max(p3Start + tm.merge * 1e6, run.merge === 'incr-batch' ? tmax : 0)];
+  return { lanes, rounds, p1End, p3, end: Math.max(tmax, p3[1]), coreLabels: 'e_cores' in other,
+    eCores: 'e_cores' in other ? other.e_cores : -1, cpus: Math.max(maxCpu + 1, other.threads) };
 }
 
 function setView() {
@@ -841,6 +855,293 @@ $('hf-form').addEventListener('submit', async (ev) => {
     $('hf-btn').disabled = false;
   }
 });
+
+// ---------- the race (B9) ----------
+// Two or three recorded runs replayed side by side on one clock. Lane A is the baseline.
+const RACE = { lanes: [], runs: [], t: 0, end: 0, playing: false, last: 0, ids: [] };
+const SLOTS = ['race-a', 'race-b', 'race-c'];
+
+function runLabel(run) {
+  const tm = run.timings.timings;
+  const mt = run.merge_threads ? `, merges on ${run.merge_threads_used}` : '';
+  return `${run.merge}, ${run.threads} thread${run.threads > 1 ? 's' : ''}${mt}` +
+    (run.full_rounds ? ', every round batched' : '') + ` · ${tm.total.toFixed(2)} s`;
+}
+const sameCase = (a, b) => a && b && a.input === b.input && a.vocab_size === b.vocab_size;
+
+async function refreshRuns() {
+  RACE.runs = (await getJSON('/api/runs')).runs;
+  fillSlot('race-a', RACE.runs, false);
+  fillPartners();
+}
+function fillSlot(id, runs, optional) {
+  const sel = $(id), keep = sel.value;
+  sel.replaceChildren();
+  if (optional) sel.append(el('option', { value: '' }, 'none'));
+  for (const r of runs) {
+    sel.append(el('option', { value: r.id }, `${runLabel(r)} · ${r.input} v${fmt(r.vocab_size)} · ${r.id}`));
+  }
+  if ([...sel.options].some((o) => o.value === keep)) sel.value = keep;
+}
+// Lanes B and C only offer runs on lane A's corpus and vocabulary: a race needs the same work.
+function fillPartners() {
+  const a = RACE.runs.find((r) => r.id === $('race-a').value);
+  const partners = RACE.runs.filter((r) => sameCase(a, r) && r.id !== (a && a.id));
+  fillSlot('race-b', partners, false);
+  fillSlot('race-c', partners, true);
+}
+$('race-a').addEventListener('change', fillPartners);
+
+// Pick a default pair: the newest run and the newest incr-serial run on the same case.
+function pickDefaultLanes() {
+  const newest = RACE.runs[0];
+  if (!newest) return false;
+  const serial = RACE.runs.find((r) => r.merge === 'incr-serial' && r.threads === 1 && sameCase(r, newest));
+  if (!serial || serial.id === newest.id) return false;
+  $('race-a').value = serial.id;
+  fillPartners();
+  $('race-b').value = newest.id;
+  return true;
+}
+
+async function loadRace() {
+  stopRace();
+  const ids = SLOTS.map((s) => $(s).value).filter(Boolean);
+  if (ids.length < 2) { setStatus('race-status', 'Pick at least lanes A and B.', true); return; }
+  setStatus('race-status', 'Loading traces…');
+  try {
+    RACE.lanes = await Promise.all(ids.map(async (id, i) => {
+      const run = RACE.runs.find((r) => r.id === id);
+      const [trace, mergesTxt] = await Promise.all([
+        getJSON(`/api/runs/${id}/trace.json`), getText(`/api/runs/${id}/merges.txt`)]);
+      const d = parseTrace(trace, run);
+      const eng = ENGINES.find((e) => e.merge === run.merge) || ENGINES[0];
+      return { slot: 'ABC'[i], run, d, total: mergesTxt.split('\n').slice(1).filter((l) => l.length).length,
+        color: eng.color, traced3: d.lanes.some((l) => l.ev.some((e) => e.g >= 2)),
+        traced1: d.lanes.some((l) => l.ev.some((e) => KINDS[e.k] === 'PRETOK_UNIT')) };
+    }));
+  } catch (e) {
+    setStatus('race-status', e.message, true);
+    return;
+  }
+  RACE.ids = ids;
+  RACE.end = Math.max(...RACE.lanes.map((L) => L.d.end));
+  buildRaceLanes();
+  RACE.t = 0;
+  for (const id of ['race-play', 'race-restart']) $(id).disabled = false;
+  setStatus('race-status', `${RACE.lanes.length} lanes loaded: ${RACE.lanes[0].run.input}, vocab ${fmt(RACE.lanes[0].run.vocab_size)}.`);
+  // Stills: #end for the finish, #at=0.3 for 30% of the way through the slowest lane.
+  const at = [...HASH].find((h) => h.startsWith('at='));
+  if (HASH.has('end')) RACE.t = RACE.end;
+  else if (at) RACE.t = Math.min(1, Math.max(0, +at.slice(3) || 0)) * RACE.end;
+  renderRace();
+}
+
+// One row per lane: label, progress bar, counters and the core map (P row, E row).
+function buildRaceLanes() {
+  const host = $('race-lanes');
+  host.replaceChildren();
+  const cpus = Math.max(...RACE.lanes.map((L) => L.d.cpus));
+  const eCores = RACE.lanes[0].d.eCores;
+  for (const L of RACE.lanes) {
+    const box = el('div', { class: 'race-lane' });
+    const head = el('div', { class: 'race-head' });
+    head.append(el('b', { class: 'slot' }, L.slot), el('span', {}, runLabel(L.run)), el('span', { class: 'race-flag' }));
+    const bar = el('div', { class: 'bar' });
+    const fill = el('div', { class: 'bar-fill' });
+    fill.style.background = `var(${L.color})`;
+    bar.append(fill);
+    const stats = el('div', { class: 'race-stats' });
+    const merges = el('span', { class: 'tabular' }), phase = el('span'), clock = el('span', { class: 'tabular' });
+    stats.append(merges, phase, clock);
+    const cores = el('div', { class: 'cores', title: 'cores sampled busy at this instant' });
+    const tiles = [];
+    const row = (label, list, small) => {
+      const r = el('div', { class: 'core-row' });
+      r.append(el('span', { class: 'core-row-label' }, label));
+      for (const c of list) {
+        const t = el('span', { class: `core${small ? ' e' : ''}`, title: `cpu ${c}` });
+        tiles[c] = t;
+        r.append(t);
+      }
+      cores.append(r);
+    };
+    const all = Array.from({ length: cpus }, (_, c) => c);
+    if (eCores >= 0) {
+      row('P', all.filter((c) => c >= eCores), false);
+      row('E', all.filter((c) => c < eCores), true);
+    } else {
+      row('cpu', all, false);
+    }
+    const note = el('p', { class: 'muted small race-note' });
+    box.append(head, bar, stats, cores, note);
+    host.append(box);
+    L.ui = { fill, merges, phase, clock, tiles, flag: head.lastChild, note };
+  }
+}
+
+// The latest event on one thread that was still running within [t - w, t], or null. With w = 0
+// this is the event covering t. A frame of the replay covers a sliver of trace time and traced
+// events have untraced gaps between them, so the core map looks back over a small window
+// (RACE_WINDOW of the race) rather than flickering with each gap.
+function recentEvent(lane, t, w) {
+  const ev = lane.ev;
+  let lo = 0, hi = ev.length;
+  while (lo < hi) { const m = (lo + hi) >> 1; if (ev[m].t0 <= t) lo = m + 1; else hi = m; }
+  for (let j = lo - 1, n = 0; j >= 0 && n < 64; --j, ++n) {
+    if (ev[j].t1 >= t - w) return ev[j];
+  }
+  return null;
+}
+// Where a thread was last seen before t (for the dashed "working, untraced" tile).
+function lastCpuBefore(lane, t) {
+  const ev = lane.ev;
+  let lo = 0, hi = ev.length;
+  while (lo < hi) { const m = (lo + hi) >> 1; if (ev[m].t0 <= t) lo = m + 1; else hi = m; }
+  return lo ? ev[lo - 1].cpu : undefined;
+}
+const RACE_WINDOW = 0.005;  // the core map's look-back, as a share of the race clock
+
+function renderRace() {
+  if (!RACE.lanes.length) return;
+  const t = RACE.t;
+  $('race-clock').textContent = `t = ${fmtTime(t)} of ${fmtTime(RACE.end)}`;
+  const A = RACE.lanes[0];
+  let allDone = true;
+  for (const L of RACE.lanes) {
+    const { d, ui } = L;
+    const finished = t >= d.end - 1;
+    allDone = allDone && finished;
+    const phase = t < d.p1End ? 1 : t < d.p3[0] ? 2 : finished ? 4 : 3;
+    // Merges landed: incr-batch rounds are traced; other engines spread evenly over the measured phase 3.
+    let done = 0;
+    if (d.rounds.length) {
+      const landed = landedIn(d.rounds, t);
+      done = landed ? d.rounds[landed - 1].start + d.rounds[landed - 1].k : 0;
+    } else if (phase >= 3) {
+      done = Math.min(L.total, Math.floor(L.total * (t - d.p3[0]) / Math.max(1, d.p3[1] - d.p3[0])));
+    }
+    if (finished) done = L.total;
+    ui.fill.style.width = `${(100 * done / L.total).toFixed(2)}%`;
+    ui.merges.textContent = `${fmt(done)} / ${fmt(L.total)} merges`;
+    ui.phase.textContent = ['', 'phase 1: pre-tokenize', 'phase 2: word table + pair counts',
+      'phase 3: merges', 'done'][phase];
+    ui.clock.textContent = finished ? `${(d.end / 1e6).toFixed(2)} s` : fmtTime(t);
+    // Core map: one tile per sampled cpu of a thread's current event, coloured by the work kind.
+    for (const tile of ui.tiles) if (tile) { tile.style.background = ''; tile.classList.remove('untraced'); }
+    let lit = 0, untraced = false;
+    if (!finished) {
+      const w = RACE.end * RACE_WINDOW;
+      for (const lane of d.lanes) {
+        const e = recentEvent(lane, t, w);
+        if (!e || e.cpu === undefined || !ui.tiles[e.cpu]) continue;
+        ui.tiles[e.cpu].style.background = `var(${GROUP_VARS[e.g]})`;
+        ++lit;
+      }
+      // Nothing traced lately but the run is in a measured phase: one thread is working (the
+      // serial pre-tokenizer and the serial merge engines are timed, not traced per event).
+      if (!lit && phase >= 1 && phase <= 3) {
+        const cpu = lastCpuBefore(d.lanes[0], t);
+        const tile = ui.tiles[cpu] || ui.tiles.find((x) => x);
+        if (tile) tile.classList.add('untraced');
+        untraced = true;
+      }
+    }
+    ui.note.textContent = untraced ? 'dashed tile: 1 thread working, timed but not traced per event' : '';
+    // Flag: the first lane home, and every lane's time against lane A.
+    if (finished) {
+      const first = RACE.lanes.every((M) => M.d.end >= d.end);
+      const vsA = L === A ? 'baseline' : A.d.end / d.end >= 1
+        ? `${(A.d.end / d.end).toFixed(2)}× faster than A` : `${(d.end / A.d.end).toFixed(2)}× slower than A`;
+      ui.flag.textContent = `${first ? '🏁 first · ' : ''}${vsA}`;
+      ui.flag.classList.toggle('win', first);
+    } else {
+      ui.flag.textContent = '';
+      ui.flag.classList.remove('win');
+    }
+  }
+  // Exactness: every lane wrote the same merges.txt.
+  const b = $('race-badge');
+  const shas = new Set(RACE.lanes.map((L) => L.run.sha256));
+  const state = !allDone ? 'pending' : shas.size === 1 ? 'ok' : 'bad';
+  b.className = `badge ${state}`;
+  b.textContent = { pending: '… same merges.txt? checked at the finish',
+    ok: `✓ same merges.txt · sha256 ${[...shas][0].slice(0, 12)}…`, bad: '✗ merges.txt differ' }[state];
+}
+function landedIn(rounds, t) {
+  let lo = 0, hi = rounds.length;
+  while (lo < hi) { const m = (lo + hi) >> 1; if (rounds[m].t <= t) lo = m + 1; else hi = m; }
+  return lo;
+}
+
+function raceSpeed() {
+  const v = $('race-speed').value;
+  return v === 'auto' ? RACE.end / 1e6 / 20 : +v;
+}
+function playRace() {
+  if (!RACE.lanes.length) return;
+  if (RACE.t >= RACE.end) RACE.t = 0;
+  RACE.playing = true;
+  RACE.last = performance.now();
+  $('race-play').textContent = 'Pause';
+  requestAnimationFrame(raceFrame);
+}
+function stopRace() {
+  RACE.playing = false;
+  $('race-play').textContent = 'Play';
+}
+function raceFrame(ts) {
+  if (!RACE.playing) return;
+  const dt = Math.min(0.1, (ts - RACE.last) / 1000);
+  RACE.last = ts;
+  RACE.t = Math.min(RACE.end, RACE.t + dt * raceSpeed() * 1e6);
+  renderRace();
+  if (RACE.t >= RACE.end) { stopRace(); return; }
+  requestAnimationFrame(raceFrame);
+}
+$('race-play').addEventListener('click', () => (RACE.playing ? stopRace() : playRace()));
+$('race-restart').addEventListener('click', () => { stopRace(); RACE.t = 0; renderRace(); });
+$('race-load').addEventListener('click', loadRace);
+
+// Train the race set with the Train form's corpus, vocab and threads: A = incr-serial on one
+// thread (the project's speedup baseline), B = incr-batch on all threads with merges on the
+// P-cores, C (optional) = the same without --merge-threads auto.
+$('race-train').addEventListener('click', async () => {
+  const input = $('input').value, vocab_size = +$('vocab').value, threads = +$('threads').value;
+  const set = [{ merge: 'incr-serial', threads: 1 }, { merge: 'incr-batch', threads, merge_threads: 'auto' }];
+  if ($('race-third').checked) set.push({ merge: 'incr-batch', threads });
+  $('race-train').disabled = true;
+  const ids = [];
+  try {
+    for (const [i, s] of set.entries()) {
+      setStatus('race-status', `Training lane ${'ABC'[i]}: ${s.merge}, ${s.threads} thread${s.threads > 1 ? 's' : ''}…`);
+      const run = await getJSON('/api/run', { method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ input, vocab_size, ...s }) });
+      ids.push(run.id);
+    }
+    await refreshRuns();
+    $('race-a').value = ids[0];
+    fillPartners();
+    $('race-b').value = ids[1];
+    $('race-c').value = ids[2] || '';
+    await loadRace();
+  } catch (e) {
+    setStatus('race-status', e.message, true);
+  } finally {
+    $('race-train').disabled = false;
+  }
+});
+
+async function initRace() {
+  try {
+    await refreshRuns();
+    if (pickDefaultLanes()) await loadRace();
+    else setStatus('race-status', 'Train a race set, or pick two finished runs on the same corpus and vocab.');
+  } catch (e) {
+    setStatus('race-status', `Server error: ${e.message}`, true);
+  }
+  if (HASH.has('race')) $('race-card').scrollIntoView();
+}
 
 // ---------- theme + resize ----------
 $('theme').addEventListener('click', () => {

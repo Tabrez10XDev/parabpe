@@ -52,8 +52,11 @@ python3 -I studio/serve.py      # then open http://127.0.0.1:8765/
 
 Trains a run with `--trace` on a corpus in `data/`, replays it per thread with P/E-core samples, shows each round's
 merges landing and the span curve, checks `merges.txt` against an IncrSerial reference (sha256), plots
-`results/*.csv`, and encodes a sentence with Hugging Face `tokenizers` (needs `.venv`). It listens on 127.0.0.1 only and
-accepts only `*.txt` files directly under `data/`. The demo script is in [docs/notes/demo.md](docs/notes/demo.md).
+`results/*.csv`, and encodes a sentence with Hugging Face `tokenizers` (needs `.venv`). **The race** replays two or
+three recorded runs side by side on one clock (IncrSerial on 1 thread against incr-batch with `--merge-threads auto`),
+with a core map of the M3 Pro lighting up per lane; what it shows and what it doesn't is in
+[docs/notes/race.md](docs/notes/race.md). The server listens on 127.0.0.1 only and accepts only `*.txt` files
+directly under `data/`. The demo script is in [docs/notes/demo.md](docs/notes/demo.md).
 
 ## Layout
 
@@ -95,4 +98,5 @@ report/            LaTeX report
 | B6 | `--trace` (Chrome Trace JSON) | ✅ |
 | B7 | ParaBPE Studio | ✅ `studio/`, demo in `docs/notes/demo.md` |
 | S9 | Report | ✅ draft: `report/report.pdf` (student review pending) |
+| B9 | Studio: the race (lockstep replay + core map) | ✅ `docs/notes/race.md` |
 | B8 | `--merge-threads auto` (phase 3 on P-cores) | ✅ code + tests; benchmark pending mains power |

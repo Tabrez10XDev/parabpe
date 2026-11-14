@@ -6,8 +6,8 @@
 It serves the viewer (studio/index.html, studio.js, studio.css), lists the corpora directly under
 data/, runs `parabpe train --trace` on one of them, and serves that run's trace and merges.txt
 together with the sha256 of an IncrSerial reference run (cached per input and vocab size). It
-also serves results/*.csv for the benchmark charts, and runs tests/interop/check_hf.py to encode
-a sentence with Hugging Face `tokenizers`.
+lists finished runs for the Race (B9), serves results/*.csv for the benchmark charts, and runs
+tests/interop/check_hf.py to encode a sentence with Hugging Face `tokenizers`.
 
 Safety: inputs must be *.txt files directly under data/ (resolved paths, no traversal), every
 command is an argument list (no shell), nothing from data/ is executed, POSTs must be JSON, and
@@ -78,6 +78,18 @@ def int_field(body, key, lo, hi):
     return value
 
 
+def merge_threads_args(body, merge):
+    """["--merge-threads", "auto" | "N"] for a parallel engine (B9), [] when absent, 0 or incr-serial."""
+    value = body.get("merge_threads", 0)
+    if value is None or value == 0 or merge == "incr-serial":
+        return []
+    if value == "auto":
+        return ["--merge-threads", "auto"]
+    if isinstance(value, int) and not isinstance(value, bool) and 1 <= value <= 64:
+        return ["--merge-threads", str(value)]
+    raise ValueError('merge_threads must be "auto" or an integer in [1, 64]')
+
+
 def train(binary, path, vocab, threads, merge, out, extra=()):
     cmd = [str(binary), "train", "--input", str(path), "--vocab-size", str(vocab),
            "--threads", str(threads), "--pretok", "omp" if threads > 1 else "serial",
@@ -114,6 +126,8 @@ def do_run(binary, body):
     if merge not in MERGES:
         raise ValueError(f"merge must be one of {MERGES}")
     extra = ["--batch-full-rounds"] if merge == "incr-batch" and body.get("full_rounds") else []
+    merge_threads = merge_threads_args(body, merge)
+    extra += merge_threads
     run_id = secrets.token_hex(6)
     out = RUNS / run_id
     out.mkdir(parents=True)
@@ -123,18 +137,33 @@ def do_run(binary, body):
         ref_sha, cached = reference(binary, path, vocab)
     digest = sha256(out / "merges.txt")
     summary = {"id": run_id, "input": path.name, "vocab_size": vocab, "threads": threads,
-               "merge": merge, "full_rounds": bool(extra), "timings": timings,
+               "merge": merge, "full_rounds": "--batch-full-rounds" in extra,
+               "merge_threads": merge_threads[1] if merge_threads else 0,
+               "merge_threads_used": timings.get("config", {}).get("merge_threads", threads),
+               "timings": timings,
                "sha256": digest, "reference_sha256": ref_sha, "reference_cached": cached,
                "identical": digest == ref_sha, "finished": time.time()}
     (out / "run.json").write_text(json.dumps(summary), encoding="utf-8")
     return summary
 
 
+def list_runs(limit=50):
+    """Finished runs (their run.json summaries), newest first. Unreadable files are skipped."""
+    runs = []
+    for p in RUNS.glob("*/run.json"):
+        if not RUN_ID.fullmatch(p.parent.name):
+            continue
+        try:
+            runs.append(json.loads(p.read_text(encoding="utf-8")))
+        except (OSError, json.JSONDecodeError):
+            continue
+    runs.sort(key=lambda r: r.get("finished", 0), reverse=True)
+    return runs[:limit]
+
+
 def latest_run():
-    runs = [p for p in RUNS.glob("*/run.json") if RUN_ID.fullmatch(p.parent.name)]
-    if not runs:
-        return None
-    return json.loads(max(runs, key=lambda p: p.stat().st_mtime).read_text(encoding="utf-8"))
+    runs = list_runs(1)
+    return runs[0] if runs else None
 
 
 def encode(body):
@@ -197,6 +226,8 @@ class Handler(http.server.BaseHTTPRequestHandler):
             if CSV_NAME.fullmatch(name) and (RESULTS / name).is_file():
                 return self.send_file(RESULTS / name, "text/csv; charset=utf-8")
             return self.send(404, {"error": "no such results file"})
+        if route == "/api/runs":
+            return self.send(200, {"runs": list_runs()})
         if route == "/api/runs/latest":
             return self.send(200, {"run": latest_run()})
         m = re.fullmatch(r"/api/runs/([0-9a-f]{12})/(trace\.json|merges\.txt|run\.json)", route)

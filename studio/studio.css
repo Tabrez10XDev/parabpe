@@ -177,6 +177,31 @@ th { color: var(--ink-2); font-weight: 600; }
 .chip small { color: var(--muted); margin-left: 4px; }
 .round.old .chips { opacity: 0.6; }
 
+/* The race (B9) */
+.race-lanes { display: grid; gap: 12px; margin-top: 6px; }
+.race-lane {
+  border: 1px solid var(--ring); border-radius: 8px; padding: 10px 12px;
+  display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 6px 18px; align-items: center;
+}
+.race-head { grid-column: 1 / -1; display: flex; gap: 10px; align-items: baseline; flex-wrap: wrap; }
+.race-head .slot {
+  display: inline-grid; place-items: center; width: 22px; height: 22px; border-radius: 6px;
+  background: var(--ink); color: var(--surface); font-size: 12.5px;
+}
+.race-flag { font-weight: 650; color: var(--ink-2); }
+.race-flag.win { color: var(--good); }
+.bar { height: 14px; border-radius: 7px; background: var(--grid); overflow: hidden; }
+.bar-fill { height: 100%; width: 0; border-radius: 7px; }
+.race-stats { display: flex; gap: 16px; flex-wrap: wrap; font-size: 12.5px; color: var(--ink-2); }
+.cores { display: flex; flex-direction: column; gap: 4px; grid-column: 2; grid-row: 2 / 4; }
+.core-row { display: flex; gap: 4px; align-items: center; }
+.core-row-label { width: 22px; font-size: 11px; color: var(--muted); }
+.core { display: inline-block; width: 26px; height: 26px; border-radius: 5px; background: var(--grid); border: 1.5px solid transparent; }
+.core.e { width: 18px; height: 18px; }
+.core.untraced { background: transparent; border-color: var(--ink-2); border-style: dashed; }
+.race-note { grid-column: 1 / -1; margin: 0; min-height: 1.2em; }
+@media (max-width: 760px) { .race-lane { grid-template-columns: 1fr; } .cores { grid-column: auto; grid-row: auto; } }
+
 svg text { fill: var(--ink-2); font: 11.5px system-ui, -apple-system, "Segoe UI", sans-serif; }
 svg .axis-line { stroke: var(--axis); }
 svg .gridline { stroke: var(--grid); }

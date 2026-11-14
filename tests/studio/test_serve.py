@@ -65,6 +65,37 @@ class Confinement(unittest.TestCase):
                 serve.do_run(pathlib.Path("/nonexistent/parabpe"), {**good, key: bad})
         self.assertEqual(list(serve.RUNS.iterdir()), [])  # nothing was started
 
+    def test_merge_threads_argument(self):
+        self.assertEqual(serve.merge_threads_args({}, "incr-batch"), [])
+        self.assertEqual(serve.merge_threads_args({"merge_threads": 0}, "incr-batch"), [])
+        self.assertEqual(serve.merge_threads_args({"merge_threads": "auto"}, "incr-batch"),
+                         ["--merge-threads", "auto"])
+        self.assertEqual(serve.merge_threads_args({"merge_threads": 7}, "incr-par"),
+                         ["--merge-threads", "7"])
+        self.assertEqual(serve.merge_threads_args({"merge_threads": "auto"}, "incr-serial"), [])
+        for bad in ["rm -rf /", "5", 65, -1, 2.0, True, [5], "AUTO"]:
+            with self.subTest(bad=bad), self.assertRaises(ValueError):
+                serve.merge_threads_args({"merge_threads": bad}, "incr-batch")
+
+    def test_run_rejects_bad_merge_threads_before_running(self):
+        good = {"input": "ok.txt", "vocab_size": 1000, "threads": 2, "merge": "incr-batch"}
+        with self.assertRaises(ValueError):
+            serve.do_run(pathlib.Path("/nonexistent/parabpe"), {**good, "merge_threads": "auto; rm -rf /"})
+        self.assertEqual(list(serve.RUNS.iterdir()), [])
+
+    def test_lists_runs_newest_first_and_skips_junk(self):
+        for rid, finished in [("0123456789ab", 10), ("0123456789ac", 30), ("0123456789ad", 20)]:
+            (serve.RUNS / rid).mkdir()
+            (serve.RUNS / rid / "run.json").write_text(json.dumps({"id": rid, "finished": finished}))
+        (serve.RUNS / "not-a-run-id").mkdir()
+        (serve.RUNS / "not-a-run-id" / "run.json").write_text("{}")
+        (serve.RUNS / "0123456789ae").mkdir()
+        (serve.RUNS / "0123456789ae" / "run.json").write_text("{ broken")
+        self.assertEqual([r["id"] for r in serve.list_runs()],
+                         ["0123456789ac", "0123456789ad", "0123456789ab"])
+        self.assertEqual([r["id"] for r in serve.list_runs(2)], ["0123456789ac", "0123456789ad"])
+        self.assertEqual(serve.latest_run()["id"], "0123456789ac")
+
     def test_encode_rejects_unknown_runs_and_long_text(self):
         for body in [{"id": "../../etc", "text": "x"}, {"id": "0123456789ab", "text": "x"}]:
             with self.subTest(body=body), self.assertRaises(ValueError):
@@ -100,6 +131,9 @@ class Http(unittest.TestCase):
         for path in ["/serve.py", "/../SPEC.md", "/api/results/..%2FSPEC.md", "/api/runs/x/trace.json"]:
             with self.subTest(path=path):
                 self.assertEqual(self.request("GET", path)[0], 404)
+        status, data = self.request("GET", "/api/runs")
+        self.assertEqual(status, 200)
+        self.assertIn("runs", json.loads(data))
 
     def test_host_guard(self):
         status, _ = self.request("GET", "/api/inputs", headers={"Host": "evil.example"})
