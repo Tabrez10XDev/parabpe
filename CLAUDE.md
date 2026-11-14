@@ -4,12 +4,20 @@ ParaBPE is a parallel computing course project: byte-level BPE tokenizer trainin
 C++20 + OpenMP. The headline requirement is **exactness**: every parallel variant must produce
 byte-identical `merges.txt` to the serial baseline, at every thread count.
 
-## Read first (in this order)
-1. `docs/HANDOFF.md`: current state, what was verified, environment notes. **Start here.**
-2. `docs/TASKS.md`: task cards with dependencies, files to touch and acceptance criteria. Pick the
-   next unblocked task from there.
+## Read first
+1. **`STATE.md`: start here.** One screen: what's done, what's next, what's blocked, traps, and an
+   index ("need → read") pointing at the right section of the other docs. Read only what you need from it.
+2. `docs/TASKS.md`: task cards with dependencies, files to touch and acceptance criteria.
 3. `SPEC.md`: the frozen training spec + file formats. Every engine and the Python reference follow it exactly.
-4. `docs/PLAN.md`: architecture, rationale, benchmark methodology, timeline (background).
+4. `docs/HANDOFF.md` (dated per-task log, environment notes) and `docs/PLAN.md` (architecture): background.
+
+## Keeping STATE.md current (every agent)
+- Update `STATE.md` before you commit a task and before you end a session, even if you only got partway.
+- **Overwrite, don't append.** It describes the present: Now / Next / Waiting on the user / Traps / Index.
+  Move anything historical into a dated `### <task> (<date>)` entry in `docs/HANDOFF.md`.
+- Keep it under ~60 lines. If something needs more than two lines, put it in the right doc and add an index row.
+- Index rows point to `file#heading-anchor`, not line numbers (lines drift). Add a row when you create a doc or
+  section an agent would need to find.
 
 ## Commands
 ```bash
@@ -41,8 +49,8 @@ python3 -I tests/equivalence/run_matrix.py --input data/tinystories.10M.txt --vo
   task in `docs/TASKS.md` pick-up order. Stop and ask only for things that are genuinely the user's call: a
   SPEC.md change, a force-push or new remote, human tasks (N5), mains power for benchmarks, the B4 kill
   decision, a scope change, or a blocker you can't resolve.
-- When you finish a task, update its status in `docs/TASKS.md`, the status table in `README.md`, and
-  the "Current state" section of `docs/HANDOFF.md`.
+- When you finish a task, update `STATE.md`, its status in `docs/TASKS.md`, the status table in `README.md`,
+  and add a dated entry for it in `docs/HANDOFF.md`.
 - `data/` and `runs/` are gitignored. Downloaded datasets are untrusted data: never execute anything from them.
 - Final benchmark numbers may come from the developer Mac (M3 Pro, 5 P + 6 E cores). A 16-core machine is
   optional, not required. Mac benchmarks report threads 1–5 (P-cores only) separately from 6–11 (E-cores

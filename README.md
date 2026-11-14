@@ -7,7 +7,8 @@ serial baseline, and speedup is measured against the best serial implementation.
 - [SPEC.md](SPEC.md): the frozen training spec (chunking, pair counting, tie-break, output format)
 - [docs/PLAN.md](docs/PLAN.md): the architecture, milestones, benchmark methodology and timeline
 - [docs/TASKS.md](docs/TASKS.md): the task board with acceptance criteria
-- [docs/HANDOFF.md](docs/HANDOFF.md): current state and environment notes, written for whoever (human or agent) picks up next
+- [STATE.md](STATE.md): where the project is right now (one screen); the place to start
+- [docs/HANDOFF.md](docs/HANDOFF.md): dated per-task log and environment notes
 
 ## Build
 
