@@ -1,6 +1,6 @@
 # STATE: where the project is right now
 
-Updated 2026-11-13 · last commit: B10 (Studio work view) · CI green on B9 (`6eff391`)
+Updated 2026-11-13 · last commit: B10 (Studio work view) · CI green on B10 (`afd3ad1`)
 
 > One screen. **Overwrite, don't append**: history goes to `docs/HANDOFF.md` (dated log). Max ~60 lines.
 > Every agent updates this file before ending a session or committing a task.
