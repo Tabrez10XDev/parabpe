@@ -7,12 +7,14 @@ way. Also the mains-power check used by run_bench.py and scripts/profile_phases.
 - Only empty cells are missing values; "n/a" (power off macOS) stays a string.
 - name = the input file's stem (data/wikitext.full.txt -> wikitext.full).
 - phase1_s = chunk_s + pretok_s: phase 1 as the report and Studio define it.
+- source = the CSV's stem (batch, main, ...), so a figure can use one file and its own baseline.
 """
 
 import pathlib
 import subprocess
 import sys
 
+import numpy as np
 import pandas as pd
 
 
@@ -29,8 +31,8 @@ def power_source():
 
 def read(paths):
     """The rows of one or more CSVs, warm-ups included."""
-    return pd.concat([pd.read_csv(p, keep_default_na=False, na_values=[""]) for p in paths],
-                     ignore_index=True)
+    return pd.concat([pd.read_csv(p, keep_default_na=False, na_values=[""])
+                      .assign(source=pathlib.Path(p).stem) for p in paths], ignore_index=True)
 
 
 def stalled(df):
@@ -50,3 +52,12 @@ def clean(df):
 def load(*paths):
     """read() then clean(), without the stall count."""
     return clean(read(paths))[0]
+
+
+def amdahl_fit(threads, speedup):
+    """Least-squares serial fraction f for S(p) = 1 / (f + (1 - f) / p). Used by plot.py's figure and
+    by report/numbers.py for the fractions quoted in the text."""
+    p, s = np.asarray(threads, float), np.asarray(speedup, float)
+    # 1/S = f (1 - 1/p) + 1/p  ->  linear in f.
+    a, y = 1 - 1 / p, 1 / s - 1 / p
+    return float(np.clip((a @ y) / (a @ a), 0, 1)) if (a @ a) > 0 else float("nan")

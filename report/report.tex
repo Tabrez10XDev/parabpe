@@ -104,8 +104,8 @@ Threads 1--5 run on the performance cores; from 6 the efficiency cores join (sha
 
 With phase 1 parallel, phase 3 dominates what is left. On WikiText-103 IncrSerial's merge phase takes \wtBaseMergeMs\,ms
 at vocabulary 32k and \wtBaseMergeMsC\,ms at 100k, and it does not scale at all (\wtSerFive\x{} at 5 threads: it is
-serial). Fitting Amdahl's law to the total time on threads 1--5 gives a serial fraction of 0.188 for IncrSerial and
-0.132 for \code{incr-batch} (\code{results/plots/summary.md}).
+serial). Fitting Amdahl's law to the total time on threads 1--5 gives a serial fraction of \wtAmdahlSer{} for IncrSerial and
+\wtAmdahlBatch{} for \code{incr-batch} (\wtAmdahlSerC{} and \wtAmdahlBatchC{} at 100k).
 
 Parallelising inside one merge step does not remove the chain. \code{incr-par} splits each large step across owner
 threads and gets \wtParFive\x{} at 5 threads, falling to \wtParEleven\x{} at 11. Below a size threshold a step runs on the
@@ -204,7 +204,8 @@ Span figures in this report come from the latter mode; speedups from the former.
 \begin{itemize}
 \item \textbf{Golden files.} Eleven small corpora with \code{merges.txt} and \code{vocab.json} from an independent Python
   reference trainer (ties, Unicode 16 classes, emoji, special-token edge cases).
-\item \textbf{Equivalence matrix.} Every pre-tokenizer $\times$ engine (plus hashed IncrPar) at threads
+\item \textbf{Equivalence matrix.} Every pre-tokenizer $\times$ engine (plus hashed IncrPar, and phase 3 on more or
+  fewer threads than phase 1) at threads
   $\{1,2,3,4,8,16\}$ on 10\,MB slices of both corpora must hash identically to the naive serial oracle. Zero mismatches
   after every task.
 \item \textbf{Runtime oracle.} \code{-{}-verify-batches} runs a sequential engine alongside and checks each member of each
@@ -329,6 +330,7 @@ Hashing fixes the imbalance but, on its own, barely helps IncrPar: \ownContFive\
 from the batched rounds, with hashed owners keeping each round balanced.
 
 \subsection{What the trace shows}
+\label{sec:trace}
 
 \code{-{}-trace} records per-thread events (selection, owner rewrites, reductions, order updates) into 64-byte-aligned
 buffers; with tracing off the run is unchanged within noise, and tracing on costs \ohOn\% and \ohOnC\% of the merge phase
@@ -387,7 +389,8 @@ HF breaks ties by pair id rather than by our byte order, so its merge list diffe
   milliseconds, so the batching machinery has nothing to amortise. It runs at parity with IncrSerial on the performance
   cores rather than below it (Section~\ref{sec:results}), and with \code{-{}-merge-threads auto} also at 11 threads
   (Section~\ref{sec:pcores}).
-\item \textbf{The master is serial.} Selection and order updates are the remaining Amdahl term (Section 8.3).
+\item \textbf{The master is serial.} Selection and order updates are the remaining Amdahl term
+  (Section~\ref{sec:trace}).
 \item \textbf{One machine, no pinning.} All results come from one laptop. macOS cannot pin threads, so the scheduler places
   them; the P/E labels in traces are samples, not placements.
 \item \textbf{Power.} Early runs on battery were slowed by idle sleep; every result reported here was rerun on mains power,

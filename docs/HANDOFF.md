@@ -498,6 +498,19 @@ A repo-wide consistency pass at the user's request (report first, then fixes; pl
   IncrSerial baseline, 645.6 ms), TinyStories paragraph and Limits point to it, conclusion and Reproducing updated, the
   hash-row count is now computed (`\hashRows`, 2,736 rows, and numbers.py stops if any input has two hashes).
 
+### Figures follow the text; report review (2026-11-18)
+- `plot.py` `pick_sources()`: each headline figure uses one CSV (most merge engines, then strategies) with its own
+  IncrSerial baseline, the rule numbers.py uses; the owners figure uses owners.csv. wikitext.full v32k figure now reads
+  3.91× / 5.06× / 1.63×, equal to the text (was 3.83× from a pooled baseline). `results.read()` adds `source`.
+- Amdahl serial fractions were typed into report.tex (0.188 / 0.132, pooled); now macros from batch.csv via the shared
+  `results.amdahl_fit` (0.169 / 0.120 at 32k, 0.241 / 0.186 at 100k), equal to amdahl.png's fits.
+- Report review: a hard-coded "Section 8.3" (now `\ref`, §8.4 after the new §8.2); the equivalence-matrix bullet now
+  mentions mixed merge teams. Every other number is a macro. Builds without warnings.
+- Demo dry run: every number demo.md quotes matches Studio (3.98× / 5.06× phase 1, 1.15× / 1.63× / 1.38× phase 3,
+  owner load 2.30 → 1.08, 19,888 rounds, badge ✓, Hugging Face encode ok).
+- `bench/configs/merge_threads_order.yaml` (auto first) is ready for mains power; plot.py keeps it out of the S8 and
+  merge_threads figures.
+
 ## What exists
 | Path | What it is |
 |---|---|

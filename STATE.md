@@ -1,6 +1,6 @@
 # STATE: where the project is right now
 
-Updated 2026-11-18 · last commit: S9 (merge-on-P-cores results; TinyStories explained) · check `gh run list`
+Updated 2026-11-18 · last commit: S9 (figures use one CSV + own baseline; report review) · check `gh run list`
 
 > One screen. **Overwrite, don't append**: history goes to `docs/HANDOFF.md` (dated log). Max ~60 lines.
 > Every agent updates this file before ending a session or committing a task.
@@ -14,13 +14,13 @@ Updated 2026-11-18 · last commit: S9 (merge-on-P-cores results; TinyStories exp
 - Cleanup pass done (HANDOFF "Cleanup"): `bench/results.py` holds the benchmark row rules for plots, report and checks.
 
 ## Next
-Nothing left for an agent unless the user picks something below.
+1. On **mains power** (~3 min): `.venv/bin/python -I bench/run_bench.py bench/configs/merge_threads_order.yaml
+   --require-ac`. It runs `auto` first. If phase 1 is now slower *without* auto, the B8 TinyStories miss was run order:
+   say so in report §8.2 (last paragraph) and HANDOFF "B8 benchmark"; if auto is still slower, report that instead.
 
 ## Waiting on the user
-- Figure vs text: plot.py pools the IncrSerial baseline over all main CSVs, numbers.py uses each CSV's own, so the
-  wikitext.full v32k figure says 3.83× where the text says 3.91× (~2%). Pick one rule.
-- Optional: test the TinyStories phase-1 miss (rerun merge_threads.yaml with the auto runs first).
-- Student: review the report, rehearse the demo twice; N5 (big machine, optional); submission deadline unknown.
+- Mains power for step 1 (on battery as of 2026-11-18 evening).
+- Student: rehearse the demo twice (dry run of every step passed); N5 (big machine, optional); deadline unknown.
 
 ## Traps (read before touching anything)
 - Never edit `SPEC.md`. Speedups are vs **IncrSerial**. Benchmarks only with `--require-ac`.

@@ -182,6 +182,16 @@ def main():
     put("ohOn", 100 * (get("on", 32000) / get("new", 32000) - 1), "{:.1f}")
     put("ohOnC", 100 * (get("on", 100000) / get("new", 100000) - 1), "{:.1f}")
 
+    # Amdahl serial fraction of the total, fitted on threads 1-5 (as plot.py's amdahl.png).
+    bt = load("batch.csv")
+    for vtag, vocab in [("", 32000), ("C", 100000)]:
+        b0 = base(bt, "wikitext.full", vocab, "total_s")
+        for mtag, merge in [("Ser", "incr-serial"), ("Batch", "incr-batch")]:
+            ts = [1, 2, 3, 4, 5]
+            sp = [b0 / med(bt, "total_s", name="wikitext.full", vocab_size=vocab, pretok="omp", merge=merge,
+                           threads=t) for t in ts]
+            put(f"wtAmdahl{mtag}{vtag}", results.amdahl_fit(ts, sp), "{:.3f}")
+
     # B8: merging on the performance cores (merge_threads.csv; its own IncrSerial baseline rows).
     mt = load("merge_threads.csv")
     mt["mt"] = mt["merge_threads"].astype(str).str.replace(r"\.0$", "", regex=True)

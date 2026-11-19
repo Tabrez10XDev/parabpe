@@ -3,7 +3,8 @@
 
     .venv/bin/python -I bench/plot.py results/*.csv --out-dir results/plots
 
-Writes, per (input, vocab_size) that has an IncrSerial baseline (serial pre-tokenizer, 1 thread):
+Writes, per (input, vocab_size) that has an IncrSerial baseline (serial pre-tokenizer, 1 thread), from
+one CSV with its own baseline (pick_sources(), the rule report/numbers.py follows):
   speedup_<input>_v<vocab>.png  speedup of phase 1 (chunk + pre-tokenize), phase 3 and the total:
                                 median line, min/max band, ideal line, P-core / E-core regions
   phases_<input>_v<vocab>.png   stacked median phase times per thread count, one panel per strategy
@@ -68,7 +69,7 @@ def strategy(row):
 
 def kind(row):
     """What a run is for; only "main" runs are comparable timings of the default configuration."""
-    if row["config"] == "merge_threads":
+    if str(row["config"]).startswith("merge_threads"):  # merge_threads, merge_threads_order
         return "merge_threads"  # B8: own figure; never pooled with the S8 medians
     if row["full_rounds"]:
         return "span"
@@ -94,6 +95,20 @@ def stats(df, keys):
     g = df.groupby(keys)[cols]
     return pd.concat([g.median(), g.min().add_suffix("_min"), g.max().add_suffix("_max")],
                      axis=1).reset_index()
+
+
+def pick_sources(df):
+    """Per (input, vocab): the CSV whose main rows include the serial/incr-serial 1-thread baseline and
+    the most merge engines, then the most strategies (the newer file wins a tie). Each headline figure
+    uses only that file, with its own baseline, as report/numbers.py does for the numbers next to it."""
+    best = {}
+    for (name, vocab, src), g in df[df["kind"] == "main"].groupby(["name", "vocab_size", "source"]):
+        if not ((g["strategy"] == "serial/incr-serial") & (g["threads"] == 1)).any():
+            continue
+        score = (g["merge"].nunique(), g["strategy"].nunique(), str(g["timestamp"].max()))
+        if (name, vocab) not in best or score > best[(name, vocab)][0]:
+            best[(name, vocab)] = (score, src)
+    return {k: v[1] for k, v in best.items()}
 
 
 def baseline(st, name, vocab):
@@ -190,12 +205,7 @@ def phases_plot(st, name, vocab, out):
     plt.close(fig)
 
 
-def amdahl_fit(threads, speedup):
-    """Least-squares serial fraction f for S(p) = 1 / (f + (1 - f) / p)."""
-    p, s = np.asarray(threads, float), np.asarray(speedup, float)
-    # 1/S = f (1 - 1/p) + 1/p  ->  linear in f.
-    a, y = 1 - 1 / p, 1 / s - 1 / p
-    return float(np.clip((a @ y) / (a @ a), 0, 1)) if (a @ a) > 0 else float("nan")
+amdahl_fit = results.amdahl_fit
 
 
 def amdahl_plot(st, out):
@@ -364,10 +374,18 @@ def batch_sizes_plot(rows, out):
     return True
 
 
-def owners_plot(all_st, df, name, vocab, base, out):
-    """B5: same hue for the same engine; the line style and marker carry the owner map."""
-    timed = all_st[(all_st["name"] == name) & (all_st["vocab_size"] == vocab) &
-                   (all_st["merge"] == "incr-par") & (all_st["pretok"] == "omp")]
+def owners_plot(all_st, df, name, vocab, out):
+    """B5: same hue for the same engine; the line style and marker carry the owner map. Uses the CSV
+    that holds the hashed-owner runs, with that file's own IncrSerial baseline."""
+    case = all_st[(all_st["name"] == name) & (all_st["vocab_size"] == vocab)]
+    srcs = case[case["kind"] == "owners"]["source"].unique()
+    if len(srcs) == 0:
+        return False
+    case = case[case["source"] == srcs[0]]
+    base = baseline(case[case["kind"] == "main"], name, vocab)
+    if base is None:
+        return False
+    timed = case[(case["merge"] == "incr-par") & (case["pretok"] == "omp")]
     load_rows = df[(df["name"] == name) & (df["vocab_size"] == vocab) & (df["kind"] == "load")]
     maps = {"contiguous": ("main", "-", "o"), "hashed": ("owners", "--", "s")}
     if timed[timed["kind"] == "owners"].empty or load_rows.empty:
@@ -411,7 +429,7 @@ def owners_plot(all_st, df, name, vocab, base, out):
 
 def merge_threads_plot(df, out):
     """B8: phase-3 speedup at threads 5-11, merge team = all threads (solid) or auto (dashed)."""
-    d = df[df["kind"] == "merge_threads"].copy()
+    d = df[(df["kind"] == "merge_threads") & (df["source"] == "merge_threads")].copy()  # not the order test
     if d.empty:
         return False
     d["mt"] = d["merge_threads"]
@@ -467,11 +485,14 @@ def main():
     style()
 
     df, n_stalled = load(args.csv)
-    keys = ["kind", "name", "vocab_size", "strategy", "pretok", "merge", "pretok_reduce",
+    keys = ["kind", "source", "name", "vocab_size", "strategy", "pretok", "merge", "pretok_reduce",
             "par_threshold_tokens", "owners_per_thread", "merge_threads", "threads"]
     all_st = stats(df, keys)
     all_st["runs"] = df.groupby(keys).size().to_numpy()
-    st = all_st[all_st["kind"] == "main"]
+    chosen = pick_sources(df)
+    own = pd.Series([chosen.get((n, v)) == s for n, v, s in
+                     zip(all_st["name"], all_st["vocab_size"], all_st["source"])], index=all_st.index)
+    st = all_st[(all_st["kind"] == "main") & own]
     written = []
     for (name, vocab), _ in st.groupby(["name", "vocab_size"]):
         base = baseline(st, name, vocab)
@@ -482,8 +503,7 @@ def main():
             continue  # no baseline: a weak-scaling slice or a sweep input, not a headline config
         phases_plot(st, name, vocab, out / f"phases_{name}_v{vocab}.png")
         written.append(f"phases_{name}_v{vocab}.png")
-        if owners_plot(all_st, df, name, vocab, base,
-                                            out / f"owners_{name}_v{vocab}.png"):
+        if owners_plot(all_st, df, name, vocab, out / f"owners_{name}_v{vocab}.png"):
             written.append(f"owners_{name}_v{vocab}.png")
     fits = amdahl_plot(st, out / "amdahl.png")
     if not fits.empty:
@@ -517,7 +537,7 @@ def main():
         table = (loads.groupby(["name", "vocab_size", "threads", "owner_map"])["busiest_mean"]
                  .median().reset_index())
         lines += ["## Owner load, busiest / mean", "", md_table(table), ""]
-    cols = ["kind", "name", "vocab_size", "strategy", "par_threshold_tokens", "owners_per_thread",
+    cols = ["kind", "source", "name", "vocab_size", "strategy", "par_threshold_tokens", "owners_per_thread",
             "merge_threads", "threads", "runs"]
     for p in PHASES + ["total"]:
         all_st[f"{p} (med [min, max])"] = all_st.apply(

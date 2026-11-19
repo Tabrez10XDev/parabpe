@@ -1,0 +1,11 @@
+# B8 follow-up: does run order explain TinyStories' slower phase 1 with --merge-threads auto?
+# In merge_threads.yaml every auto run came straight after its all-threads run. Here auto runs first.
+# If phase 1 is now the slower one *without* auto, the miss was run order, not the setting.
+inputs: [data/tinystories.1G.txt]
+threads: [11]
+pretok: [omp]
+merge: [incr-batch]
+merge_threads: [auto, 0]
+vocab_size: [32000, 100000]
+baseline: false
+reps: 5
