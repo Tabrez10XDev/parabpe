@@ -35,13 +35,13 @@ measured value is used and the difference is listed at the end.
 6. **Before/after** (Phase 3 chart, then Owner load). "IncrPar, one merge per step: 1.15× at 5 threads. incr-batch:
    1.63× (1.31× at vocab 100k). Hashing words to owners cuts the busiest owner from 2.30× the mean to 1.08." Also: "on
    the E-cores it drops (1.38× at 11 threads), because each round waits for the slowest owner."
-7. **The race** (Race card: "Train race set" with the Train form at wikitext.full, vocab 32,000, 11 threads, ~15 s
-   for both lanes; or load the two runs trained before the talk). Play at "fit to 20 s". "Lane A is IncrSerial on one
+7. **The race** (Race card: "Train race set" with the Train form at wikitext.full, vocab 32,000, 11 threads, about
+   8 s for both lanes; or load the two runs trained before the talk). Play at "fit to 20 s". "Lane A is IncrSerial on one
    thread, the baseline every number in this project is measured against. Lane B is incr-batch on 11 threads with the
    merges on the five performance cores. Same corpus, same vocabulary; each lane runs at its own recorded speed."
    Point at the core maps: "Phase 1 lights every core. In phase 3 the E-core tiles go dark: the merge team is the five
-   P-cores, so no round waits for an efficiency core." At the flag: "3.9× on the whole run (measured: `results/`),
-   and the badge says both wrote the same `merges.txt`." Tick "add lane C" for the before/after of
+   P-cores, so no round waits for an efficiency core." At the flag: "about 4× on the whole run; the benchmarks
+   measured 3.9× at 11 threads. And the badge says both wrote the same `merges.txt`." Tick "add lane C" for the before/after of
    `--merge-threads auto` at 11 threads. What the picture does and doesn't show: `docs/notes/race.md`.
 8. **The work** (card under Replay; same Play button). "Phase 1 on the data: each square is a megabyte of
    Wikipedia; eleven threads take the next square as soon as they finish one, so the work spreads evenly." Then

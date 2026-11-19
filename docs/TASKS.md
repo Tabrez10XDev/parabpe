@@ -11,7 +11,7 @@ Work through the tasks in **pick-up order**. A task can start once everything in
 | 2 | N3 Data scripts | ✅ (TinyStories + WikiText run; enwik9 path written, not run) | — |
 | 3 | S1 Chunker + serial pre-tokenizer | ✅ | N3, N4 |
 | 4 | S2 WordTable + NaiveSerial + writer + `train()` | ✅ | S1 |
-| 5 | S4 OMP pre-tokenizer + TSan CI | ✅ (TSan job written, runs once pushed) | S1 |
+| 5 | S4 OMP pre-tokenizer + TSan CI | ✅ (TSan job green in CI) | S1 |
 | 6 | S3 IncrSerial + equivalence harness | ✅ | S2 |
 | 7 | N8 Profiling spike | ✅ | N3, N4 |
 | 8 | N7 Bench harness | ✅ | — (needs the `timings.json` schema in SPEC §6 only) |

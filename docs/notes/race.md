@@ -12,8 +12,8 @@ the concept behind it, and what the picture does **not** show. Code: `studio/stu
 2. **Fair comparison.** Lane A is IncrSerial on one thread with the serial pre-tokenizer: the baseline every speedup
    in this project is measured against (CLAUDE.md, report). The other lanes train the **same corpus to the same
    vocabulary**, so they do the same work. Lanes B and C can only be chosen from runs on lane A's corpus and vocab.
-3. **The audience can make it live.** "Train race set" trains the lanes in front of them (about 10 s per lane on
-   `wikitext.full`), then replays. Nothing is cached except IncrSerial's reference sha256 per corpus and vocab.
+3. **The audience can make it live.** "Train race set" trains the lanes in front of them (on `wikitext.full` at
+   vocab 32k: about 6 s for the serial lane and 2 s for the parallel one, plus a one-off reference run), then replays. Nothing is cached except IncrSerial's reference sha256 per corpus and vocab.
 
 ## Reading a lane
 | Element | What it is | What it teaches |

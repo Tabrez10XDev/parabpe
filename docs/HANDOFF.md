@@ -1,9 +1,8 @@
 # Handoff: read this first
 
-## Current state (2026-11-09)
-**Done:** N1 (repo skeleton), N2 (draft spec and interfaces), **N4 (Python reference + golden files)**, **N3 (data)**, **S1 (chunker + serial pre-tokenizer)** and **S2 (WordTable + NaiveSerial +
-writers + `train()`)** **S3 (IncrSerial + equivalence harness)** and **S4 (OMP pre-tokenizer + TSan CI job)**. Training works end to end
-with `--pretok serial|omp --merge naive-serial|incr-serial`; All four engines work: IncrPar has a parallel phase 2 (S5) and phase 3 (S6).
+## Log (oldest first)
+Where the project stands **now** is in [STATE.md](../STATE.md). This is the dated log: each entry describes the
+state on its date. Early entries say CI never ran, for example; the remote and CI arrived on 2026-11-03.
 
 **N4 + Unicode pin (2026-10-31).** The plan for N4 → N3 → S1 was checked by an independent reviewer; its changes are
 folded into the S1/S2 cards in `docs/TASKS.md`.
@@ -431,12 +430,6 @@ All configs ran: 2,232 rows, 0 stalled, 0 failed, 0 on battery. **Every row for 
 - **Environment change:** installing tectonic upgraded Homebrew's pcre2 to 10.49 (Unicode 17). PCRE2 10.45 is now built
   locally and linked statically; see Environment notes.
 
-**Next:** B8's benchmark on mains power (`bench/configs/merge_threads.yaml`, ~20 min), then the S9 report update
-with its numbers and the corrected TinyStories explanation. After that, nothing left in the pick-up order. For the student: review the report, rehearse the demo twice
-(`docs/notes/demo.md`), and decide on N5 (optional big machine). Timing runs **need the Mac on mains power and
-awake**: `.venv/bin/python -I bench/run_bench.py bench/configs/<name>.yaml --require-ac`, then
-`bench/plot.py results/*.csv --out-dir results/plots`.
-
 ### B8 (2026-11-09)
 - `--merge-threads N|auto`: phase 3 gets its own team size; `auto` = P-cores (5 here), at most `--threads`. Default
   unchanged. Details on the B8 card in `docs/TASKS.md`.
@@ -447,15 +440,6 @@ awake**: `.venv/bin/python -I bench/run_bench.py bench/configs/<name>.yaml --req
 - **Contradiction reported:** the planned "serial fallback for tiny merge phases" rested on TinyStories' 0.94×, which
   is a baseline effect (see the B8 card). Replaced by a report correction.
 - Equivalence matrix incl. 16 mixed cases: 0 mismatches on both 10 MB slices.
-
-### B10 (2026-11-13)
-- Studio card **The work**: phase-1 work units (corpus order, per-thread counts) and phase-3 real words rewritten per
-  round, by the thread that ran their owner. Details and what it doesn't show: `docs/notes/work_view.md`.
-- Trace format: `PRETOK_UNIT` gains `"unit"` (second argument; other kinds unchanged). New `--trace-words FILE`
-  (written after the clock stops; merges unchanged). `serve.py` passes it and serves `words.json`.
-- Measured on wikitext.full, 11 threads: 508 units, 45–47 per thread; units that started on an E-core took a median
-  15.7 ms against 17.3 ms on a P-core. So start-of-event core samples are weak for long events. The race's and
-  swimlanes' phase-1 P/E labels carry the same caveat; phase-3 events are microseconds long.
 
 ### B9 (2026-11-13)
 - Studio gained **the race**: 2–3 finished runs on the same corpus and vocab replayed on one clock (lane A = baseline),
@@ -469,36 +453,45 @@ awake**: `.venv/bin/python -I bench/run_bench.py bench/configs/<name>.yaml --req
 - Verified headless (Chrome `--dump-dom` + screenshots) on wikitext.10M v4000: serial 0.154 s, incr-batch t11+auto
   0.072 s, t11 0.079 s, all identical; with `auto` only cpus 6–10 light in phase 3. Teaching note: `docs/notes/race.md`.
 
+### B10 (2026-11-13)
+- Studio card **The work**: phase-1 work units (corpus order, per-thread counts) and phase-3 real words rewritten per
+  round, by the thread that ran their owner. Details and what it doesn't show: `docs/notes/work_view.md`.
+- Trace format: `PRETOK_UNIT` gains `"unit"` (second argument; other kinds unchanged). New `--trace-words FILE`
+  (written after the clock stops; merges unchanged). `serve.py` passes it and serves `words.json`.
+- Measured on wikitext.full, 11 threads: 508 units, 45–47 per thread; units that started on an E-core took a median
+  15.7 ms against 17.3 ms on a P-core. So start-of-event core samples are weak for long events. The race's and
+  swimlanes' phase-1 P/E labels carry the same caveat; phase-3 events are microseconds long.
+
 ## What exists
 | Path | What it is |
 |---|---|
-| `SPEC.md` | Frozen training spec + file formats (§6). This is the contract. |
-| `docs/PLAN.md` | Architecture, rationale, benchmark methodology, timeline (reviewed by an independent agent; v2) |
-| `docs/TASKS.md` | Task cards with acceptance criteria |
-| `include/parabpe/types.hpp` | `TokenId`, `PairKey`, `Merge`, `TrainConfig`, `WordCounts`, `WordTable`, `PhaseTimings`, `Vocab`, `kGPT2Pattern` |
-| `include/parabpe/corpus.hpp` + `src/corpus.cpp` | `Corpus` (mmap, **implemented**), `WorkUnit`, `make_work_units` (stub, S1) |
-| `include/parabpe/pretokenizer.hpp` | `PreTokenizer` interface + `make_pretokenizer` factory |
-| `include/parabpe/merge_engine.hpp` | `MergeEngine` interface, `build_word_table`, `make_merge_engine` |
-| `include/parabpe/io.hpp` + `src/io.cpp` | `bytes_to_unicode`, `build_vocab`, writers (all stubs, S2) |
-| `src/strategies.{hpp,cpp}` | Internal per-strategy constructors + factory dispatch |
-| `src/pretok_{serial,omp}.cpp`, `src/merge_{naive,incr}.cpp`, `src/word_table.cpp` | Strategies; IncrPar's phase 3 is still serial (S6) |
-| `src/main.cpp` | CLI11 `train` / `encode` subcommands, wired to the full pipeline with phase timing |
-| `CMakeLists.txt` | Targets `parabpe_core` (lib), `parabpe` (CLI), `parabpe_tests` (gtest). Options `PARABPE_NATIVE/ASAN/TSAN` |
-| `.github/workflows/ci.yml` | GCC Release, ASan and TSan (clang + LLVM libomp) jobs on ubuntu |
-| `requirements.txt` | Python deps for the reference, bench and interop scripts |
-| `reference/` | `bpe_ref.py` (oracle), `make_golden.py`, `test_bpe_ref.py`, `README.md` (versions + byte formats) |
-| `tests/golden/` | 11 cases (`input.txt`, `case.txt`, `words.tsv`, `merges.txt`, `vocab.json`) + `unicode_classes.txt` |
-| `scripts/build_pcre2.sh` | Builds PCRE2 10.45 (static) for CI |
-| `scripts/get_data.sh`, `scripts/slice_data.py` | Corpus download + normalization/slicing (N3) |
-| `include/parabpe/regex.hpp`, `src/regex.cpp` | PCRE2 wrapper: `Regex` (shared, JIT) + per-thread `Matcher` (S1) |
-| `include/parabpe/trainer.hpp`, `src/trainer.cpp` | The pipeline as a library: `count_words`, `train_text`, `train` (S2) |
-| `src/bpe_common.hpp` | Shared merge rules for every engine: tie-break, greedy merge, merge count (S2) |
-| `tests/interop/check_hf.py` | HF `tokenizers` token-id check of our output files (S2) |
-| `bench/run_bench.py`, `bench/plot.py`, `bench/configs/*.yaml` | Bench harness (N7); results go to `results/` (committed) |
-| `scripts/profile_phases.py`, `docs/notes/profiling.md` | N8 profiling spike + findings |
-| `tests/equivalence/run_matrix.py` | Equivalence matrix (S3); CTest `equivalence_matrix`, label `slow` |
-| `tools/batchsim/batchsim.cpp`, `docs/notes/batched_merging.md` | Independent batching simulator; the proof, measurements and risks (B0) |
-| `report/` | Empty (contains only `.gitkeep`) |
+| `SPEC.md` | The training spec + file formats (§6): the contract every engine and the Python reference follow |
+| `STATE.md` | One screen: where the project is now, what's next, traps, and an index into the docs |
+| `docs/PLAN.md`, `docs/TASKS.md`, `docs/notes/` | Architecture and method; task cards; topic notes (batched merging proof, profiling, related work, demo, race, work view) |
+| `include/parabpe/` | Public API: `types.hpp` (`TrainConfig`, `WordTable`, …), `corpus.hpp`, `regex.hpp`, `pretokenizer.hpp`, `merge_engine.hpp`, `trainer.hpp`, `io.hpp` |
+| `src/corpus.cpp`, `src/regex.cpp` | mmap + UTF-8 check + parallel special-token chunker (S1, S10); PCRE2 wrapper with per-thread `Matcher` |
+| `src/pretok_{serial,omp}.cpp` | Phase 1 pre-tokenizers (S1, S4) |
+| `src/word_table.cpp`, `src/bpe_common.hpp` | Word table; shared merge rules (tie-break, merge count) |
+| `src/merge_naive.cpp` | NaiveSerial and NaivePar (S2, S7) |
+| `src/incr_common.hpp`, `src/merge_incr.cpp` | Owners, sharded pair counts, parallel steps; IncrSerial and IncrPar (S3, S5, S6) |
+| `src/batch_select.hpp`, `src/merge_batch.cpp` | IncrBatch: round selection (the batch rule), parallel rounds, `--verify-batches` oracle (B0–B5) |
+| `src/strategies.{hpp,cpp}` | Factory dispatch from the strategy enums to the engines |
+| `src/trainer.cpp` | The pipeline: `count_words`, `train_text`, `train`; `--merge-threads` resolution (B8) |
+| `src/io.cpp` | `bytes_to_unicode`, `build_vocab`, byte-exact writers, `timings.json` |
+| `src/trace.{hpp,cpp}`, `src/trace_words.{hpp,cpp}` | `--trace` (Chrome Trace JSON, B6) and `--trace-words` (B10) |
+| `src/main.cpp` | CLI11 `train` command |
+| `tests/unit/` | GoogleTest suites (golden files, chunker, pre-tokenizer, engines, batching, trace, merge threads) |
+| `tests/golden/` | 11 reference cases from `reference/make_golden.py` + `unicode_classes.txt` |
+| `tests/equivalence/run_matrix.py` | Every strategy × threads {1,2,3,4,8,16} (+ mixed merge teams) must give identical merges; CTest `slow` |
+| `tests/interop/check_hf.py`, `tests/studio/test_serve.py` | Hugging Face `tokenizers` token-id check; Studio server guards |
+| `reference/` | Python oracle `bpe_ref.py`, `make_golden.py`, its tests, version + byte-format notes |
+| `bench/` | `run_bench.py` (YAML configs → `results/*.csv`), `plot.py`, `kill_check.py` (B4 gate) |
+| `results/` | Benchmark CSVs, `plots/` (+ `summary.md`), profiling and trace summaries (committed) |
+| `report/` | `report.tex` (+ `report.pdf`), `numbers.py` → `numbers.tex` (every number from `results/`) |
+| `studio/` | ParaBPE Studio: `serve.py` (stdlib, 127.0.0.1) + `index.html`/`studio.js`/`studio.css` |
+| `scripts/` | `build_pcre2.sh`, data download/slicing, `profile_phases.py` (N8), `trace_summary.py`, `run_s8.sh` |
+| `tools/batchsim/` | Independent batching simulator (no project code on purpose): the B0 cross-check and negative controls |
+| `.github/workflows/ci.yml` | GCC Release, ASan and TSan (clang + LLVM libomp) jobs on Ubuntu |
 
 ## Environment notes (developer Mac)
 - macOS on Apple Silicon (arm64). The default C++ compiler is **Apple clang 17** (`/usr/bin/c++`).
@@ -520,7 +513,7 @@ awake**: `.venv/bin/python -I bench/run_bench.py bench/configs/<name>.yaml --req
   startup. Even a hello-world built with `-fsanitize=address` hangs, so `-DPARABPE_ASAN=ON` builds hang during test
   discovery. Xcode 16.4 is installed and active and has the same clang, so it doesn't help; an Xcode that supports
   macOS 27 (or `brew install llvm`) may fix it. Until then use UBSan locally:
-  `cmake -B build-ubsan -DCMAKE_BUILD_TYPE=Debug -DPARABPE_NATIVE=OFF -DCMAKE_CXX_FLAGS="-fsanitize=undefined -fno-sanitize-recover=undefined" -DCMAKE_EXE_LINKER_FLAGS=-fsanitize=undefined`
+  `cmake -B build-ubsan -DCMAKE_BUILD_TYPE=Debug -DPARABPE_NATIVE=OFF -DPCRE2_INCLUDE_DIR=$HOME/pcre2/include -DPCRE2_LIBRARY=$HOME/pcre2/lib/libpcre2-8.a -DCMAKE_CXX_FLAGS="-fsanitize=undefined -fno-sanitize-recover=undefined" -DCMAKE_EXE_LINKER_FLAGS=-fsanitize=undefined`
   and rely on the CI `asan` job for ASan.
 - **Python:** the repo venv `.venv` exists (Python 3.13.3, `requirements.txt` installed). Always use
   `.venv/bin/python`: the system Python has no `regex`, and other `regex` versions break the Unicode pin.

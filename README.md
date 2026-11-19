@@ -4,7 +4,7 @@ ParaBPE trains a byte-level BPE tokenizer (GPT-2/Llama style) in parallel on mul
 using C++20 and OpenMP. Every parallel variant must produce **exactly the same merges** as the
 serial baseline, and speedup is measured against the best serial implementation.
 
-- [SPEC.md](SPEC.md): the frozen training spec (chunking, pair counting, tie-break, output format)
+- [SPEC.md](SPEC.md): the training spec (chunking, pair counting, tie-break, output format)
 - [docs/PLAN.md](docs/PLAN.md): the architecture, milestones, benchmark methodology and timeline
 - [docs/TASKS.md](docs/TASKS.md): the task board with acceptance criteria
 - [STATE.md](STATE.md): where the project is right now (one screen); the place to start
@@ -12,26 +12,28 @@ serial baseline, and speedup is measured against the best serial implementation.
 
 ## Build
 
-Requirements: CMake ≥ 3.20, a C++20 compiler, OpenMP and PCRE2.
+Requirements: CMake ≥ 3.20, a C++20 compiler, OpenMP and **PCRE2 exactly 10.45**. The spec pins Unicode 16.0;
+Homebrew's PCRE2 is newer (Unicode 17) and Ubuntu's is older, so build 10.45 once with the script:
 
 ```bash
-# macOS
-brew install cmake libomp pcre2
-# Ubuntu
-sudo apt install cmake libpcre2-dev
-
-cmake -B build -DCMAKE_BUILD_TYPE=Release
+# macOS: brew install cmake libomp     Ubuntu: sudo apt install cmake
+scripts/build_pcre2.sh ~/pcre2
+cmake -B build -DCMAKE_BUILD_TYPE=Release \
+  -DPCRE2_INCLUDE_DIR=$HOME/pcre2/include -DPCRE2_LIBRARY=$HOME/pcre2/lib/libpcre2-8.a
 cmake --build build -j
 ctest --test-dir build --output-on-failure
+python3 -m venv .venv && .venv/bin/pip install -r requirements.txt   # Python tooling, Studio, benchmarks
 ```
 
-Sanitizer builds: `-DPARABPE_ASAN=ON`, or `-DPARABPE_TSAN=ON` (use clang with LLVM libomp for TSan).
+Sanitizer builds: `-DPARABPE_ASAN=ON` or `-DPARABPE_TSAN=ON` (TSan needs clang with LLVM libomp). Both run in CI; on
+the developer Mac (macOS 27) the local ASan and TSan runtimes hang at startup, so use UBSan there (docs/HANDOFF.md).
 
 ## Usage
 
 ```bash
-./build/parabpe train --input data/wt103.txt --vocab-size 32000 --threads 16 \
-    --pretok omp --merge incr-par --out runs/wt103-16t
+scripts/get_data.sh wikitext       # data/wikitext.{10M,100M,full}.txt
+./build/parabpe train --input data/wikitext.full.txt --vocab-size 32000 --threads 11 \
+    --merge-threads auto --pretok omp --merge incr-batch --out runs/wikitext-32k
 ```
 
 | Flag | Values |
@@ -62,43 +64,20 @@ directly under `data/`. The demo script is in [docs/notes/demo.md](docs/notes/de
 ## Layout
 
 ```
-include/parabpe/   public interfaces (types, corpus, pretokenizer, merge_engine, io)
+include/parabpe/   public interfaces (types, corpus, regex, pretokenizer, merge_engine, trainer, io)
 src/               implementations, one file per strategy
 reference/         Python oracle (bpe_ref.py), the spec-exact reference for tiny corpora
-tests/             unit/, equivalence/ (strategy × threads), golden/
+tests/             unit/, equivalence/ (strategy × threads), golden/, interop/ (Hugging Face), studio/
 bench/             run_bench.py, plot.py, configs/
-scripts/           data download + slicing, profiling spike, trace_summary.py
+results/           benchmark CSVs and plots (committed)
+scripts/           PCRE2 build, data download + slicing, profiling spike, trace_summary.py
+tools/batchsim/    independent batching simulator (the B0 cross-check)
 studio/            ParaBPE Studio (serve.py + a no-build viewer)
-report/            LaTeX report
+report/            LaTeX report (report.tex, report.pdf) and numbers.py
+docs/              plan, task board, handoff log, notes
 ```
 
 ## Status
 
-| Step | Work | Status |
-|---|---|---|
-| N1 | Repo skeleton, CMake, CI, smoke tests | ✅ |
-| N2 | Spec + interfaces frozen | ✅ (draft; team review pending) |
-| N3 | Data scripts | ✅ |
-| N4 | Python reference + golden files | ✅ |
-| S1 | Chunker + serial pre-tokenizer | ✅ |
-| S2 | WordTable + NaiveSerial + writer | ✅ |
-| S3 | IncrSerial (baseline) | ✅ |
-| S4 | OMP pre-tokenizer | ✅ |
-| S5 | Parallel PairStats | ✅ |
-| S6 | IncrPar | ✅ |
-| S7 | NaivePar | ✅ |
-| S10 | Parallel chunker | ✅ |
-| B0 | Batched merging: proof, `tools/batchsim` | ✅ |
-| B1 | Refactor: `src/incr_common.hpp` | ✅ |
-| B2 | `incr-batch` plumbing | ✅ |
-| B3 | `incr-batch` serial engine + `--verify-batches` | ✅ |
-| B4 | Hashed owners, parallel rounds | ✅ kill check passed (1.83× / 1.39×) |
-| B5 | Owner-map ablation | ✅ |
-| N6 | Related work | ✅ |
-| S8 | Benchmarks | ✅ `results/`, `results/plots/` |
-| B6 | `--trace` (Chrome Trace JSON) | ✅ |
-| B7 | ParaBPE Studio | ✅ `studio/`, demo in `docs/notes/demo.md` |
-| S9 | Report | ✅ draft: `report/report.pdf` (student review pending) |
-| B9 | Studio: the race (lockstep replay + core map) | ✅ `docs/notes/race.md` |
-| B10 | Studio: the work (work units, real words rewritten per thread) | ✅ `docs/notes/work_view.md` |
-| B8 | `--merge-threads auto` (phase 3 on P-cores) | ✅ code + tests; benchmark pending mains power |
+All tasks are done except the B8 benchmark (needs mains power) and the report's final review. Per-task
+status: [docs/TASKS.md](docs/TASKS.md); where things stand now: [STATE.md](STATE.md).
