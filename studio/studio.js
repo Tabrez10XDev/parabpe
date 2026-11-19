@@ -24,11 +24,16 @@ const GUTTER = 96, LANE_H = 20, LANE_GAP = 7, TOP = 22, AXIS_H = 26, RIGHT = 12;
 
 const S = {
   run: null, lanes: [], rounds: [], merges: [], totalMerges: 0, view: [0, 1], t: 0,
-  playing: false, last: 0, p3: [0, 0], end: 0, landed: -1, coreLabels: false, colors: null,
+  p3: [0, 0], end: 0, landed: -1, coreLabels: false, colors: null,
 };
 
 // URL hash options for stills and rehearsals, e.g. #end&p3&light.
 const HASH = new Set(location.hash.slice(1).split('&').filter(Boolean));
+// #at=0.3: a still 30% of the way through (the replay's view; the race's slowest lane), or null.
+const AT = (() => {
+  const h = [...HASH].find((x) => x.startsWith('at='));
+  return h ? Math.min(1, Math.max(0, +h.slice(3) || 0)) : null;
+})();
 if (HASH.has('light') || HASH.has('dark')) {
   document.documentElement.dataset.theme = HASH.has('light') ? 'light' : 'dark';
 }
@@ -79,6 +84,15 @@ function ticks(max, n = 5) {
   for (let v = 0; v <= max + 1e-9; v += step) out.push(+v.toFixed(10));
   return out;
 }
+// How many leading elements of a sorted array satisfy pred (pred holds on a prefix): a bisect.
+function countWhile(arr, pred) {
+  let lo = 0, hi = arr.length;
+  while (lo < hi) { const m = (lo + hi) >> 1; if (pred(arr[m])) lo = m + 1; else hi = m; }
+  return lo;
+}
+// Rounds landed by time t, and the merges they hold.
+const landedBy = (rounds, t) => countWhile(rounds, (r) => r.t <= t);
+const mergesDone = (rounds, landed) => (landed ? rounds[landed - 1].start + rounds[landed - 1].k : 0);
 function setStatus(id, text, err = false) {
   const s = $(id);
   s.textContent = text;
@@ -88,7 +102,6 @@ function readColors() {
   S.colors = {
     groups: GROUP_VARS.map(cssVar), ink: cssVar('--ink'), ink2: cssVar('--ink-2'),
     grid: cssVar('--grid'), axis: cssVar('--axis'), strip: cssVar('--e-strip'),
-    region: cssVar('--region'), batch: cssVar('--e-batch'), muted: cssVar('--muted'),
     surface: cssVar('--surface'),
   };
 }
@@ -163,9 +176,8 @@ async function loadRun(run) {
   setBadge('pending');
   loadWork(run);
   // Stills: #end for the finished run, #at=0.4 for 40% of the way through the view.
-  const at = [...HASH].find((h) => h.startsWith('at='));
   if (HASH.has('end')) { S.t = S.view[1]; render(); }
-  else if (at) { S.t = S.view[0] + Math.min(1, Math.max(0, +at.slice(3) || 0)) * (S.view[1] - S.view[0]); render(); }
+  else if (AT !== null) { S.t = S.view[0] + AT * (S.view[1] - S.view[0]); render(); }
 }
 
 // A Chrome-trace file as per-thread lanes, incr-batch rounds and the phase windows (µs from the
@@ -392,8 +404,7 @@ $('lanes').addEventListener('mousemove', (ev) => {
   const lane = S.lanes[i];
   if (!lane || x < GUTTER || x > GUTTER + S.plotW) { tip.hidden = true; return; }
   const [v0, v1] = S.view, perPx = (v1 - v0) / S.plotW, t = v0 + (x - GUTTER) * perPx;
-  let lo = 0, hi = lane.ev.length;
-  while (lo < hi) { const m = (lo + hi) >> 1; if (lane.ev[m].t0 <= t + perPx) lo = m + 1; else hi = m; }
+  const lo = countWhile(lane.ev, (e) => e.t0 <= t + perPx);
   let hit = null;
   for (let j = lo - 1, n = 0; j >= 0 && n < 400; --j, ++n) {
     const e = lane.ev[j];
@@ -437,49 +448,56 @@ function buildKindTable() {
 }
 
 // ---------- replay ----------
-function speed() {
-  const v = $('speed').value;
-  return v === 'auto' ? (S.view[1] - S.view[0]) / 1e6 / 20 : +v;
+// A Play/Pause loop over one clock (µs of trace time); the replay and the race each own one.
+// "fit to 20 s" plays the clock's whole range in 20 s; the other speeds are fixed factors.
+function makePlayer(o) {
+  const p = { playing: false, last: 0 };
+  const speed = () => {
+    const v = $(o.speed).value;
+    return v === 'auto' ? (o.end() - o.start()) / 1e6 / 20 : +v;
+  };
+  const frame = (ts) => {
+    if (!p.playing) return;
+    const dt = Math.min(0.1, (ts - p.last) / 1000);
+    p.last = ts;
+    o.set(Math.min(o.end(), o.get() + dt * speed() * 1e6));
+    o.render();
+    if (o.get() >= o.end()) { p.stop(); return; }
+    requestAnimationFrame(frame);
+  };
+  p.play = () => {
+    if (!o.ready()) return;
+    if (o.get() >= o.end()) o.rewind();
+    p.playing = true;
+    p.last = performance.now();
+    $(o.button).textContent = 'Pause';
+    requestAnimationFrame(frame);
+  };
+  p.stop = () => {
+    p.playing = false;
+    $(o.button).textContent = 'Play';
+  };
+  p.toggle = () => (p.playing ? p.stop() : p.play());
+  return p;
 }
-function play() {
-  if (!S.lanes.length) return;
-  if (S.t >= S.view[1]) setView();
-  S.playing = true;
-  S.last = performance.now();
-  $('play').textContent = 'Pause';
-  requestAnimationFrame(frame);
-}
-function stop() {
-  S.playing = false;
-  $('play').textContent = 'Play';
-}
-function frame(ts) {
-  if (!S.playing) return;
-  const dt = Math.min(0.1, (ts - S.last) / 1000);
-  S.last = ts;
-  S.t = Math.min(S.view[1], S.t + dt * speed() * 1e6);
-  render();
-  if (S.t >= S.view[1]) { stop(); return; }
-  requestAnimationFrame(frame);
-}
-$('play').addEventListener('click', () => (S.playing ? stop() : play()));
+const replay = makePlayer({
+  get: () => S.t, set: (t) => { S.t = t; }, start: () => S.view[0], end: () => S.view[1],
+  speed: 'speed', button: 'play', ready: () => S.lanes.length > 0, rewind: setView, render,
+});
+const stop = () => replay.stop();
+$('play').addEventListener('click', replay.toggle);
 $('restart').addEventListener('click', () => { stop(); setView(); });
 $('view').addEventListener('change', () => { if (S.lanes.length) { stop(); setView(); } });
 
-function landedAt(t) {
-  let lo = 0, hi = S.rounds.length;
-  while (lo < hi) { const m = (lo + hi) >> 1; if (S.rounds[m].t <= t) lo = m + 1; else hi = m; }
-  return lo;
-}
 function render() {
   draw();
   if (!S.run) return;
   $('clock').textContent = `t = ${fmtTime(S.t)} of ${fmtTime(S.end)}`;
   const batch = S.rounds.length > 0;
-  const landed = batch ? landedAt(S.t) : 0;
+  const landed = batch ? landedBy(S.rounds, S.t) : 0;
   const finished = S.t >= S.p3[1] - 1;
   if (batch) {
-    const done = landed ? S.rounds[landed - 1].start + S.rounds[landed - 1].k : 0;
+    const done = mergesDone(S.rounds, landed);
     $('t-merges').textContent = `${fmt(done)} / ${fmt(S.totalMerges)}`;
     $('t-rounds').textContent = fmt(landed);
     const k = landed ? S.rounds[landed - 1].k : 0;
@@ -592,7 +610,7 @@ function buildSpan() {
 function updateSpan(landed) {
   const p = S.spanParts;
   if (!p) return;
-  const done = landed ? S.rounds[landed - 1].start + S.rounds[landed - 1].k : 0;
+  const done = mergesDone(S.rounds, landed);
   p.clipRect.setAttribute('width', p.X(landed) + 1);
   p.dot.setAttribute('cx', p.X(landed));
   p.dot.setAttribute('cy', p.Y(done));
@@ -614,7 +632,7 @@ function parseCSV(text) {
     return o;
   });
 }
-const usable = (r) => !r.warmup && !(r.total_s > 2 * r.cpu_s + 0.05);  // plot.py drops stalls too
+const usable = (r) => !r.warmup && !(r.total_s > 2 * r.cpu_s + 0.05);  // as bench/results.py
 const nameOf = (r) => String(r.input).split('/').pop().replace(/\.txt$/, '');
 
 async function loadResults() {
@@ -622,7 +640,7 @@ async function loadResults() {
     const { files } = await getJSON('/api/results');
     if (files.includes('batch.csv')) BENCH.rows = parseCSV(await getText('/api/results/batch.csv')).filter(usable);
     if (files.includes('owner_load.csv')) {
-      BENCH.load = parseCSV(await getText('/api/results/owner_load.csv')).filter((r) => !r.warmup);
+      BENCH.load = parseCSV(await getText('/api/results/owner_load.csv')).filter(usable);
     }
   } catch (e) {
     $('c-amdahl').textContent = `Could not load results: ${e.message}`;
@@ -869,7 +887,7 @@ $('hf-form').addEventListener('submit', async (ev) => {
 // each was pre-tokenized. Phase 3: real words of this run (--trace-words) rewritten round by round,
 // grouped by the thread that ran their owner. Word states come from replaying merges.txt on the
 // words' bytes: that is exactly what training does to every word, one merge at a time.
-const W = { units: [], words: null, rounds: [], note: '', shown: -1, cells: null };
+const W = { units: [], words: null, rounds: [], note: '', shown: -1 };
 const WALL_WORDS = 60;
 
 // GPT-2's byte <-> printable character map (merges.txt is written in it).
@@ -912,8 +930,7 @@ async function loadWork(run) {
   W.note = W.units.length ? unitSummary(W.units) : run.threads > 1
     ? 'This trace predates per-unit indices: train the run again to see its work units.'
     : 'One thread with the serial pre-tokenizer: the corpus is read in one pass, not traced per unit.';
-  layoutUnits();
-  renderUnitsPerThread();
+  layoutUnits();  // also draws the per-thread counts
   if (run.merge !== 'incr-batch' || !S.rounds.length) {
     W.wordsNote = 'The word view needs an incr-batch run: its rounds and owners are traced.';
   } else {
@@ -923,7 +940,7 @@ async function loadWork(run) {
       buildWords(data);
       W.wordsNote = '';
     } catch {
-      W.wordsNote = 'This run has no words.json (trained before B10): train it again to see its words.';
+      W.wordsNote = 'This run has no words.json (it predates the word sample): train it again to see its words.';
     }
   }
   S.landed = -1;
@@ -968,16 +985,8 @@ function buildWords(data) {
   }
   ownerEv.sort((x, y) => x.t0 - y.t0);
   const master = S.lanes[0].ev.filter((e) => KINDS[e.k] === 'SERIAL_APPLY');
-  const firstAtOrAfter = (arr, t) => {
-    let lo = 0, hi = arr.length;
-    while (lo < hi) { const md = (lo + hi) >> 1; if (arr[md].t0 < t) lo = md + 1; else hi = md; }
-    return lo;
-  };
-  const roundOf = (m) => {
-    let lo = 0, hi = S.rounds.length;
-    while (lo < hi) { const md = (lo + hi) >> 1; if (S.rounds[md].start <= m) lo = md + 1; else hi = md; }
-    return lo - 1;
-  };
+  const firstAtOrAfter = (arr, t) => countWhile(arr, (e) => e.t0 < t);
+  const roundOf = (m) => countWhile(S.rounds, (r) => r.start <= m) - 1;
   const rounds = new Map();
   words.forEach((w, i) => {
     let prev = w.tok0;
@@ -997,7 +1006,7 @@ function buildWords(data) {
       byOwner.set(ownerEv[j].arg, ownerEv[j]);
     }
     const serial = byOwner.size === 0;
-    const sa = serial ? master[Math.max(0, firstAtOrAfter(master, t0))] : null;
+    const sa = serial ? master[firstAtOrAfter(master, t0)] : null;
     const changes = [...rounds.get(r).values()].map((c) => {
       const ev = serial ? sa : byOwner.get(words[c.i].owner);
       return { ...c, tid: serial ? 0 : ev ? ev.tid : null, cpu: ev ? ev.cpu : undefined, e: ev ? ev.e : false };
@@ -1010,9 +1019,7 @@ function buildWords(data) {
 
 // The latest round with a word change that has landed by `landed` rounds.
 function shownRound(landed) {
-  let lo = 0, hi = W.rounds.length;
-  while (lo < hi) { const m = (lo + hi) >> 1; if (W.rounds[m].r < landed) lo = m + 1; else hi = m; }
-  return lo - 1;
+  return countWhile(W.rounds, (x) => x.r < landed) - 1;
 }
 function tokensAt(w, mergesDone) {
   let tok = w.tok0;
@@ -1042,7 +1049,7 @@ function renderWords(landed) {
     for (const id of ['round-prev', 'round-next']) $(id).disabled = true;
     return;
   }
-  const mergesDone = landed ? S.rounds[landed - 1].start + S.rounds[landed - 1].k : 0;
+  const done = mergesDone(S.rounds, landed);
   const si = shownRound(landed);
   W.shown = si;
   $('round-prev').disabled = si <= 0;
@@ -1086,7 +1093,7 @@ function renderWords(landed) {
   wall.replaceChildren();
   for (let i = 0; i < Math.min(WALL_WORDS, W.words.length); ++i) {
     const w = W.words[i];
-    const tok = tokensAt(w, mergesDone);
+    const tok = tokensAt(w, done);
     const hit = hitTid.has(i);
     const box = chipsFor(tok, `${hit ? 'hit' : ''} ${tok.length === 1 ? 'whole' : ''}`);
     box.title = `${fmt(w.count)} occurrences · ${tok.length} token${tok.length > 1 ? 's' : ''}`
@@ -1094,7 +1101,7 @@ function renderWords(landed) {
     if (hit) box.append(el('small', { class: 'by' }, hitTid.get(i) === null ? '?' : `t${hitTid.get(i)}`));
     wall.append(box);
   }
-  const whole = W.words.slice(0, WALL_WORDS).filter((w) => tokensAt(w, mergesDone).length === 1).length;
+  const whole = W.words.slice(0, WALL_WORDS).filter((w) => tokensAt(w, done).length === 1).length;
   $('wall-count').textContent = `${whole} of ${Math.min(WALL_WORDS, W.words.length)} are single tokens`;
 }
 
@@ -1209,7 +1216,7 @@ $('units').addEventListener('mouseleave', () => { $('units-tip').hidden = true; 
 
 // ---------- the race (B9) ----------
 // Two or three recorded runs replayed side by side on one clock. Lane A is the baseline.
-const RACE = { lanes: [], runs: [], t: 0, end: 0, playing: false, last: 0, ids: [] };
+const RACE = { lanes: [], runs: [], t: 0, end: 0 };
 const SLOTS = ['race-a', 'race-b', 'race-c'];
 
 function runLabel(run) {
@@ -1256,7 +1263,7 @@ function pickDefaultLanes() {
 }
 
 async function loadRace() {
-  stopRace();
+  racePlayer.stop();
   const ids = SLOTS.map((s) => $(s).value).filter(Boolean);
   if (ids.length < 2) { setStatus('race-status', 'Pick at least lanes A and B.', true); return; }
   setStatus('race-status', 'Loading traces…');
@@ -1275,16 +1282,14 @@ async function loadRace() {
     setStatus('race-status', e.message, true);
     return;
   }
-  RACE.ids = ids;
   RACE.end = Math.max(...RACE.lanes.map((L) => L.d.end));
   buildRaceLanes();
   RACE.t = 0;
   for (const id of ['race-play', 'race-restart']) $(id).disabled = false;
   setStatus('race-status', `${RACE.lanes.length} lanes loaded: ${RACE.lanes[0].run.input}, vocab ${fmt(RACE.lanes[0].run.vocab_size)}.`);
   // Stills: #end for the finish, #at=0.3 for 30% of the way through the slowest lane.
-  const at = [...HASH].find((h) => h.startsWith('at='));
   if (HASH.has('end')) RACE.t = RACE.end;
-  else if (at) RACE.t = Math.min(1, Math.max(0, +at.slice(3) || 0)) * RACE.end;
+  else if (AT !== null) RACE.t = AT * RACE.end;
   renderRace();
 }
 
@@ -1337,8 +1342,7 @@ function buildRaceLanes() {
 // (RACE_WINDOW of the race) rather than flickering with each gap.
 function recentEvent(lane, t, w) {
   const ev = lane.ev;
-  let lo = 0, hi = ev.length;
-  while (lo < hi) { const m = (lo + hi) >> 1; if (ev[m].t0 <= t) lo = m + 1; else hi = m; }
+  const lo = countWhile(ev, (e) => e.t0 <= t);
   for (let j = lo - 1, n = 0; j >= 0 && n < 64; --j, ++n) {
     if (ev[j].t1 >= t - w) return ev[j];
   }
@@ -1347,8 +1351,7 @@ function recentEvent(lane, t, w) {
 // Where a thread was last seen before t (for the dashed "working, untraced" tile).
 function lastCpuBefore(lane, t) {
   const ev = lane.ev;
-  let lo = 0, hi = ev.length;
-  while (lo < hi) { const m = (lo + hi) >> 1; if (ev[m].t0 <= t) lo = m + 1; else hi = m; }
+  const lo = countWhile(ev, (e) => e.t0 <= t);
   return lo ? ev[lo - 1].cpu : undefined;
 }
 const RACE_WINDOW = 0.005;  // the core map's look-back, as a share of the race clock
@@ -1367,8 +1370,7 @@ function renderRace() {
     // Merges landed: incr-batch rounds are traced; other engines spread evenly over the measured phase 3.
     let done = 0;
     if (d.rounds.length) {
-      const landed = landedIn(d.rounds, t);
-      done = landed ? d.rounds[landed - 1].start + d.rounds[landed - 1].k : 0;
+      done = mergesDone(d.rounds, landedBy(d.rounds, t));
     } else if (phase >= 3) {
       done = Math.min(L.total, Math.floor(L.total * (t - d.p3[0]) / Math.max(1, d.p3[1] - d.p3[0])));
     }
@@ -1419,39 +1421,14 @@ function renderRace() {
   b.textContent = { pending: '… same merges.txt? checked at the finish',
     ok: `✓ same merges.txt · sha256 ${[...shas][0].slice(0, 12)}…`, bad: '✗ merges.txt differ' }[state];
 }
-function landedIn(rounds, t) {
-  let lo = 0, hi = rounds.length;
-  while (lo < hi) { const m = (lo + hi) >> 1; if (rounds[m].t <= t) lo = m + 1; else hi = m; }
-  return lo;
-}
 
-function raceSpeed() {
-  const v = $('race-speed').value;
-  return v === 'auto' ? RACE.end / 1e6 / 20 : +v;
-}
-function playRace() {
-  if (!RACE.lanes.length) return;
-  if (RACE.t >= RACE.end) RACE.t = 0;
-  RACE.playing = true;
-  RACE.last = performance.now();
-  $('race-play').textContent = 'Pause';
-  requestAnimationFrame(raceFrame);
-}
-function stopRace() {
-  RACE.playing = false;
-  $('race-play').textContent = 'Play';
-}
-function raceFrame(ts) {
-  if (!RACE.playing) return;
-  const dt = Math.min(0.1, (ts - RACE.last) / 1000);
-  RACE.last = ts;
-  RACE.t = Math.min(RACE.end, RACE.t + dt * raceSpeed() * 1e6);
-  renderRace();
-  if (RACE.t >= RACE.end) { stopRace(); return; }
-  requestAnimationFrame(raceFrame);
-}
-$('race-play').addEventListener('click', () => (RACE.playing ? stopRace() : playRace()));
-$('race-restart').addEventListener('click', () => { stopRace(); RACE.t = 0; renderRace(); });
+const racePlayer = makePlayer({
+  get: () => RACE.t, set: (t) => { RACE.t = t; }, start: () => 0, end: () => RACE.end,
+  speed: 'race-speed', button: 'race-play', ready: () => RACE.lanes.length > 0,
+  rewind: () => { RACE.t = 0; }, render: renderRace,
+});
+$('race-play').addEventListener('click', racePlayer.toggle);
+$('race-restart').addEventListener('click', () => { racePlayer.stop(); RACE.t = 0; renderRace(); });
 $('race-load').addEventListener('click', loadRace);
 
 // Train the race set with the Train form's corpus, vocab and threads: A = incr-serial on one
@@ -1509,7 +1486,7 @@ let resizeTimer = 0;
 window.addEventListener('resize', () => {
   clearTimeout(resizeTimer);
   resizeTimer = setTimeout(() => {
-    if (S.lanes.length) { layoutLanes(); draw(); buildSpan(); layoutUnits(); S.landed = -1; render(); }
+    if (S.lanes.length) { layoutLanes(); buildSpan(); layoutUnits(); S.landed = -1; render(); }
     if (BENCH.rows.length) drawBench();
   }, 150);
 });

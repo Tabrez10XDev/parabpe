@@ -111,6 +111,10 @@ target_link_libraries(parabpe_core
 add_executable(parabpe src/main.cpp)
 target_link_libraries(parabpe PRIVATE parabpe_core CLI11::CLI11)
 
+# The B0 batching simulator: standalone on purpose (no project code), built so it can't rot unnoticed.
+add_executable(batchsim tools/batchsim/batchsim.cpp)
+target_compile_options(batchsim PRIVATE -Wall -Wextra -Wpedantic)
+
 # ---- Tests ----------------------------------------------------------------------
 enable_testing()
 add_executable(parabpe_tests
@@ -139,6 +143,15 @@ if(Python3_FOUND)
                    --input ${CMAKE_SOURCE_DIR}/data/tinystories.10M.txt --vocab-size 4000
                    --binary $<TARGET_FILE:parabpe>)
   set_tests_properties(equivalence_matrix PROPERTIES LABELS slow SKIP_RETURN_CODE 77 TIMEOUT 1800)
+  # Shared benchmark row rules (bench/results.py). Needs pandas, so it runs with the repo's .venv
+  # and is skipped (77) where that doesn't exist, e.g. in CI.
+  set(PARABPE_VENV_PY ${CMAKE_SOURCE_DIR}/.venv/bin/python)
+  if(NOT EXISTS ${PARABPE_VENV_PY})
+    set(PARABPE_VENV_PY ${Python3_EXECUTABLE})
+  endif()
+  add_test(NAME bench_results
+           COMMAND ${PARABPE_VENV_PY} -I ${CMAKE_SOURCE_DIR}/tests/bench/test_results.py)
+  set_tests_properties(bench_results PROPERTIES SKIP_RETURN_CODE 77)
   # Studio server (B7): input confinement and request checks; no training runs.
   add_test(NAME studio_serve
            COMMAND ${Python3_EXECUTABLE} -I ${CMAKE_SOURCE_DIR}/tests/studio/test_serve.py)

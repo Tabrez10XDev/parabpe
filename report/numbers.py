@@ -3,26 +3,29 @@
 
     .venv/bin/python -I report/numbers.py
 
-Rules match bench/plot.py: warm-up rows and stalled rows (wall > 2 x CPU + 0.05 s) are dropped, values are medians,
-and speedups are against serial/incr-serial at 1 thread on the same input and vocabulary.
+Rows are loaded by bench/results.py, as for every figure: warm-ups and stalls (wall > 2 x CPU + 0.05 s) dropped, and
+phase 1 = chunk + pre-tokenize. Values are medians. Speedups are against serial/incr-serial at 1 thread on the same
+input and vocabulary, from the same CSV. bench/plot.py instead pools that baseline over every "main" CSV, so a figure
+can differ from the number quoted here by the baseline's run-to-run spread (wikitext.full v32k total: 5.53 s pooled vs
+5.65 s in batch.csv, so 3.83x in the figure vs 3.91x here). Two more exceptions, each marked below: weak scaling uses
+pre-tokenizer time only (as plot.py's weak_plot), and the B4 sweep numbers use bench/kill_check.py's rule (IncrSerial
+with the OMP pre-tokenizer, pooled over threads).
 """
 
 import pathlib
 import re
-
-import pandas as pd
+import sys
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(ROOT / "bench"))
+import results  # noqa: E402
+
 RES = ROOT / "results"
 OUT = ROOT / "report" / "numbers.tex"
 
 
 def load(name):
-    d = pd.read_csv(RES / name)
-    d = d[(d["warmup"] == 0) & ~(d["total_s"] > 2 * d["cpu_s"] + 0.05)].copy()
-    d["name"] = d["input"].str.split("/").str[-1].str.replace(".txt", "", regex=False)
-    d["phase1_s"] = d["chunk_s"] + d["pretok_s"]
-    return d
+    return results.load(RES / name)
 
 
 def pick(d, **kw):
@@ -76,6 +79,13 @@ def main():
                                                            merge="incr-batch", threads=5)))
             put(f"{tag}ParRounds{vtag}", thousands(med(b, "parallel_rounds", name=name, vocab_size=vocab,
                                                        merge="incr-batch", threads=5)))
+
+    # Merge time in ms for the same engine after the parallel pre-tokenizer (TinyStories parity, B8).
+    for tag, name in [("wt", "wikitext.full"), ("ts", "tinystories.1G")]:
+        for ttag, t in [("One", 1), ("Five", 5), ("Eleven", 11)]:
+            for mtag, m in [("Ser", "incr-serial"), ("Batch", "incr-batch")]:
+                put(f"{tag}Ms{mtag}{ttag}", 1000 * med(b, "merge_s", name=name, vocab_size=32000,
+                                                     pretok="omp", merge=m, threads=t), "{:.1f}")
 
     s = load("span.csv")
     for tag, name in [("wt", "wikitext.full"), ("ts", "tinystories.1G"), ("wth", "wikitext.100M")]:

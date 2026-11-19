@@ -11,8 +11,11 @@ runs, or merges.txt differing from IncrSerial).
 
 import argparse
 import math
+import pathlib
+import sys
 
-import pandas as pd
+sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))  # -I leaves the script dir out
+import results  # noqa: E402
 
 THREADS, LIMIT = 5, 1.3
 VOCABS = [32000, 100000]
@@ -22,8 +25,7 @@ def main():
     ap = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
     ap.add_argument("csv")
     args = ap.parse_args()
-    df = pd.read_csv(args.csv)
-    df = df[df["warmup"] == 0]
+    df = results.load(args.csv)  # warm-ups and stalls dropped; "n/a" power stays a string
 
     problems = []
     if not set(df["power"]) <= {"AC Power", "n/a"}:

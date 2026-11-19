@@ -38,6 +38,9 @@ import tempfile
 
 import yaml
 
+sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))  # -I leaves the script dir out
+from results import power_source  # noqa: E402
+
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 PHASES = ["chunk", "pretok", "build", "pairs", "merge", "total"]  # CSV columns <phase>_s
 COLUMNS = (["timestamp", "config", "input", "input_bytes", "vocab_size", "threads", "pretok",
@@ -102,16 +105,6 @@ def grid(cfg):
             as_list(cfg.get("merge_threads", 0))):
         runs.append(run(inp, t, *rest))
     return [r for r in runs if r]
-
-
-def power_source():
-    if sys.platform != "darwin":
-        return "n/a"
-    try:
-        out = subprocess.run(["pmset", "-g", "batt"], capture_output=True, text=True).stdout
-        return out.splitlines()[0].split("'")[1]
-    except (OSError, IndexError):
-        return "unknown"
 
 
 def launcher():
@@ -213,9 +206,8 @@ def main():
                     return 1
                 result, err = run_one(args.binary, prefix, run, pathlib.Path(tmp))
                 if err:
-                    note = "skipped (not implemented)" if "not implemented" in err else f"FAILED: {err}"
-                    failures += "not implemented" not in err
-                    print(f"{label}: {note}")
+                    failures += 1
+                    print(f"{label}: FAILED: {err}")
                     break
                 t, sha, cpu = result
                 key = (run["input"], run["vocab_size"])

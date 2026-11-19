@@ -22,6 +22,8 @@ import tempfile
 import time
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(ROOT / "bench"))
+from results import power_source  # noqa: E402
 SPECIAL = "<|endoftext|>"
 
 
@@ -72,14 +74,6 @@ def cpp_train(binary, path, vocab_size, threads, pretok):
                         "--threads", str(threads), "--pretok", pretok, "--merge", "incr-serial",
                         "--out", tmp], check=True, capture_output=True)
         return json.loads((pathlib.Path(tmp) / "timings.json").read_text())
-
-
-def power_source():
-    try:
-        out = subprocess.run(["pmset", "-g", "batt"], capture_output=True, text=True).stdout
-        return out.splitlines()[0].split("'")[1]
-    except (OSError, IndexError):
-        return "unknown"
 
 
 def main():

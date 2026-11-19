@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
-"""Equivalence matrix: every implemented (pretok, merge) pair x thread count must produce a
+"""Equivalence matrix: every (pretok, merge) pair x thread count must produce a
 merges.txt (and vocab.json) byte-identical to the oracle, serial pre-tokenizer + NaiveSerial at
-1 thread. Strategies that still report "not implemented" are listed as skipped.
+1 thread.
 
     python3 tests/equivalence/run_matrix.py --input data/tinystories.10M.txt --vocab-size 4000
 
@@ -39,8 +39,6 @@ def train(binary, args, pretok, merge, threads, out_dir, merge_threads=None):
         cmd += ["--merge-threads", merge_threads]
     proc = subprocess.run(cmd, capture_output=True, text=True)
     if proc.returncode != 0:
-        if "not implemented" in proc.stderr:
-            return "skip", proc.stderr.strip()
         return "error", proc.stderr.strip()
     return "ok", digest(out_dir)
 
@@ -60,7 +58,7 @@ def main():
     if 3 not in args.threads:
         print("warning: threads=3 is required for the equivalence check (CLAUDE.md)")
 
-    failures, skipped = [], set()
+    failures = []
     with tempfile.TemporaryDirectory(prefix="parabpe_matrix_") as tmp:
         tmp = pathlib.Path(tmp)
         status, oracle = train(args.binary, args, "serial", "naive-serial", 1, tmp / "oracle")
@@ -71,14 +69,9 @@ def main():
         for pretok in PRETOKS:
             for merge in MERGES:
                 for t in args.threads:
-                    if (pretok, merge) in skipped:
-                        break
                     name = f"{pretok}/{merge}/t{t}"
                     status, result = train(args.binary, args, pretok, merge, t, tmp / name)
-                    if status == "skip":
-                        skipped.add((pretok, merge))
-                        print(f"SKIP  {pretok}/{merge}: {result}")
-                    elif status == "error":
+                    if status == "error":
                         failures.append(name)
                         print(f"ERROR {name}: {result}")
                     elif result != oracle:
@@ -89,8 +82,6 @@ def main():
                         print(f"OK    {name}")
         for merge in PAR_MERGES:
             for t, mt in MIXED:
-                if ("omp", merge) in skipped:
-                    break
                 name = f"omp/{merge}/t{t}/mt{mt}"
                 status, result = train(args.binary, args, "omp", merge, t, tmp / name, mt)
                 if status != "ok" or result != oracle:
@@ -99,7 +90,7 @@ def main():
                 else:
                     print(f"OK    {name}")
 
-    print(f"\n{len(failures)} mismatches, {len(skipped)} strategy pairs not implemented yet")
+    print(f"\n{len(failures)} mismatches")
     return 1 if failures else 0
 
 

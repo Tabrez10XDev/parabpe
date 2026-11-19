@@ -3,23 +3,24 @@
 
     .venv/bin/python -I bench/plot.py results/*.csv --out-dir results/plots
 
-Writes, per (input, vocab_size) present in the data:
-  speedup_<input>_v<vocab>.png  per-phase speedup vs IncrSerial (serial pre-tokenizer, 1 thread):
+Writes, per (input, vocab_size) that has an IncrSerial baseline (serial pre-tokenizer, 1 thread):
+  speedup_<input>_v<vocab>.png  speedup of phase 1 (chunk + pre-tokenize), phase 3 and the total:
                                 median line, min/max band, ideal line, P-core / E-core regions
   phases_<input>_v<vocab>.png   stacked median phase times per thread count, one panel per strategy
   owners_<input>_v<vocab>.png   IncrPar contiguous vs hashed owners: load and phase 3 speedup
-plus amdahl.png (serial fraction fitted on threads 1-5), weak_scaling.png (phase 1, when inputs
-grow with threads), threshold.png (IncrPar threshold sweep, when present), span.png and
-batch_sizes.png (from --batch-full-rounds runs) and summary.md (median / min / max of every
-configuration, the table view of every plot).
-Warm-up runs are ignored. Runs whose wall time is more than twice their CPU time are dropped as
-stalls (e.g. the machine slept) and counted in summary.md. Every row has a `kind` (see kind()), and
-only "main" rows reach the speedup, phase and Amdahl plots, so sweeps, full-round runs and
---owner-stats runs can never leak into a headline figure.
+plus amdahl.png (serial fraction fitted on threads 1-5), weak_scaling.png (pre-tokenizer, when
+inputs grow with threads), threshold.png (IncrPar threshold sweep, when present), span.png and
+batch_sizes.png (from --batch-full-rounds runs), merge_threads.png (B8) and summary.md (median /
+min / max of every configuration, the table view of every plot).
+Rows are loaded by bench/results.py: warm-ups and stalls (wall > 2 x CPU + 0.05 s) dropped, the
+stalls counted in summary.md. Every row has a `kind` (see kind()), and only "main" rows reach the
+speedup, phase and Amdahl plots, so sweeps, full-round runs and --owner-stats runs can never leak
+into a headline figure.
 """
 
 import argparse
 import pathlib
+import sys
 
 import matplotlib
 
@@ -27,6 +28,9 @@ matplotlib.use("Agg")
 import matplotlib.pyplot as plt  # noqa: E402
 import numpy as np  # noqa: E402
 import pandas as pd  # noqa: E402
+
+sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))  # -I leaves the script dir out
+import results  # noqa: E402
 
 # Reference palette (light mode), fixed slot order; colour follows the entity, never its rank.
 SLOTS = ["#2a78d6", "#eb6834", "#1baf7a", "#eda100", "#e87ba4", "#008300", "#6250d6", "#e34948"]
@@ -37,8 +41,9 @@ STRATEGY_COLORS = {
 }
 MARKERS = ["o", "s", "^", "D", "v", "P", "X", "h"]
 PHASES = ["chunk", "pretok", "build", "pairs", "merge"]
-PHASE_LABELS = {"chunk": "chunk", "pretok": "phase 1: pre-tokenize", "build": "build",
-                "pairs": "phase 2: pair stats", "merge": "phase 3: merges", "total": "total"}
+PHASE_LABELS = {"chunk": "chunk", "pretok": "pre-tokenize", "build": "build",
+                "pairs": "phase 2: pair stats", "merge": "phase 3: merges", "total": "total",
+                "phase1": "phase 1: chunk + pre-tokenize"}
 TEXT, TEXT_2, GRID, SURFACE = "#0b0b0b", "#52514e", "#e6e5e0", "#fcfcfb"
 P_CORES = 5  # M3 Pro: threads 1-5 fit on performance cores
 SWEEPS = {"threshold", "b4_sweep"}  # configs that vary a setting on purpose
@@ -75,21 +80,17 @@ def kind(row):
 
 
 def load(paths):
-    df = pd.concat([pd.read_csv(p, keep_default_na=False, na_values=[""]) for p in paths],
-                   ignore_index=True)
-    df = df[df["warmup"] == 0].copy()
+    df, n_stalled = results.clean(results.read(paths))
     # B8 column; older CSVs predate it (0 = merge on all threads). "5.0" from a float column -> "5".
     mt = df["merge_threads"] if "merge_threads" in df else pd.Series("0", index=df.index)
     df["merge_threads"] = mt.fillna("0").astype(str).str.replace(r"\.0$", "", regex=True)
-    stalled = df["total_s"] > 2 * df["cpu_s"] + 0.05
     df["strategy"] = df.apply(strategy, axis=1)
     df["kind"] = df.apply(kind, axis=1)
-    df["name"] = df["input"].map(lambda p: pathlib.Path(p).stem)
-    return df[~stalled].copy(), int(stalled.sum())
+    return df, n_stalled
 
 
 def stats(df, keys):
-    cols = [f"{p}_s" for p in PHASES + ["total"]]
+    cols = [f"{p}_s" for p in PHASES + ["phase1", "total"]]
     g = df.groupby(keys)[cols]
     return pd.concat([g.median(), g.min().add_suffix("_min"), g.max().add_suffix("_max")],
                      axis=1).reset_index()
@@ -127,7 +128,7 @@ def speedup_plot(st, name, vocab, base, out):
              (st["strategy"] != "serial/incr-serial")]
     if sub.empty:
         return False
-    metrics = ["pretok", "merge", "total"]
+    metrics = ["phase1", "merge", "total"]
     fig, axes = plt.subplots(1, 3, figsize=(13, 4), constrained_layout=True)
     max_t = int(sub["threads"].max())
     strategies = sorted(sub["strategy"].unique(), key=list(STRATEGY_COLORS).index)
@@ -477,9 +478,11 @@ def main():
         if base is not None and speedup_plot(st, name, vocab, base,
                                              out / f"speedup_{name}_v{vocab}.png"):
             written.append(f"speedup_{name}_v{vocab}.png")
+        if base is None:
+            continue  # no baseline: a weak-scaling slice or a sweep input, not a headline config
         phases_plot(st, name, vocab, out / f"phases_{name}_v{vocab}.png")
         written.append(f"phases_{name}_v{vocab}.png")
-        if base is not None and owners_plot(all_st, df, name, vocab, base,
+        if owners_plot(all_st, df, name, vocab, base,
                                             out / f"owners_{name}_v{vocab}.png"):
             written.append(f"owners_{name}_v{vocab}.png")
     fits = amdahl_plot(st, out / "amdahl.png")
@@ -500,7 +503,7 @@ def main():
     power = ", ".join(sorted(df["power"].astype(str).unique()))
     lines = ["# Benchmark summary", "",
              f"Sources: {', '.join(pathlib.Path(p).name for p in args.csv)}. Power: {power}. "
-             f"Warm-up runs excluded; {n_stalled} stalled run(s) dropped (wall > 2 × CPU time).", ""]
+             f"Warm-up runs excluded; {n_stalled} stalled run(s) dropped (wall > 2 × CPU time + 0.05 s).", ""]
     if not fits.empty:
         lines += ["## Amdahl fit (threads 1–5)", "", md_table(fits),
                   ""]

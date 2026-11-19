@@ -462,6 +462,26 @@ All configs ran: 2,232 rows, 0 stalled, 0 failed, 0 on battery. **Every row for 
   15.7 ms against 17.3 ms on a P-core. So start-of-event core samples are weak for long events. The race's and
   swimlanes' phase-1 P/E labels carry the same caveat; phase-3 events are microseconds long.
 
+### Cleanup (2026-11-18)
+A repo-wide consistency pass at the user's request (report first, then fixes; plan approved). Three commits:
+- **Docs:** README build that works (PCRE2 10.45 via `scripts/build_pcre2.sh`), real usage example, status table
+  replaced by links; this file's "Current state" became the log; "What exists" rebuilt; `report.pdf` tracked;
+  requirements: `pyarrow` in, unused `tiktoken`/`datasets` out; stray `.gitkeep` files removed.
+- **C++:** `encode` stub subcommand and `trace_arg_name` removed; `src/sysctl.hpp` (one helper; timings.json's
+  `performance_cores` now uses `performance_cores()`); one `NamedValue` table per enum for CLI + timings.json;
+  chunker per-thread lists padded to 64 bytes; `tests/unit/trace_test_util.hpp`; stale comments fixed.
+- **Tooling/Studio:** `bench/results.py` loads rows for plot.py, numbers.py and kill_check.py (warm-ups, stalls
+  `wall > 2 x CPU + 0.05 s`, "n/a" kept, phase 1 = chunk + pretok) + `power_source()`; test `tests/bench/
+  test_results.py` (CTest `bench_results`, skips without the .venv); plot.py's phase-1 panel is now chunk +
+  pre-tokenize (matches the report text), phase plots only for configs with a baseline (10 noise PNGs deleted);
+  dead "not implemented" branches gone; `studio.js`: one bisect, one player for replay and race, one `#at=`
+  parser, dead fields and a double render removed, stall filter on owner-load rows; `batchsim` is a CMake target.
+- Verified: numbers.tex byte-identical; summary.md identical except the corrected stall wording; kill_check output
+  identical; Studio DOM text identical at three replay points; 100/100 tests in both builds (+ bench_results);
+  matrix 0 mismatches on both 10 MB slices; mutations caught (stall filter dropped: 2 tests fail).
+- **Open (user's call):** plot.py pools the IncrSerial baseline over all main CSVs, numbers.py uses each CSV's
+  own; the wikitext.full v32k figure shows 3.83× total where the text says 3.91×.
+
 ## What exists
 | Path | What it is |
 |---|---|
@@ -485,7 +505,7 @@ All configs ran: 2,232 rows, 0 stalled, 0 failed, 0 on battery. **Every row for 
 | `tests/equivalence/run_matrix.py` | Every strategy × threads {1,2,3,4,8,16} (+ mixed merge teams) must give identical merges; CTest `slow` |
 | `tests/interop/check_hf.py`, `tests/studio/test_serve.py` | Hugging Face `tokenizers` token-id check; Studio server guards |
 | `reference/` | Python oracle `bpe_ref.py`, `make_golden.py`, its tests, version + byte-format notes |
-| `bench/` | `run_bench.py` (YAML configs → `results/*.csv`), `plot.py`, `kill_check.py` (B4 gate) |
+| `bench/` | `run_bench.py` (YAML configs → `results/*.csv`), `plot.py`, `kill_check.py` (B4 gate), `results.py` (shared row rules) |
 | `results/` | Benchmark CSVs, `plots/` (+ `summary.md`), profiling and trace summaries (committed) |
 | `report/` | `report.tex` (+ `report.pdf`), `numbers.py` → `numbers.tex` (every number from `results/`) |
 | `studio/` | ParaBPE Studio: `serve.py` (stdlib, 127.0.0.1) + `index.html`/`studio.js`/`studio.css` |

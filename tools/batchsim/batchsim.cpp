@@ -1,9 +1,9 @@
 // batchsim: standalone cross-check of the batched-merging rule (docs/notes/batched_merging.md).
-// Replays exact BPE from a words.tsv with a std::set order (no project code on purpose, and not in
-// the CMake build). Each round computes a batch from the live order, then applies its members one
-// merge at a time and asserts that each one is the sequential argmax at that moment.
+// Replays exact BPE from a words.tsv with a std::set order (no project code on purpose; CMake builds
+// it as the `batchsim` target). Each round computes a batch from the live order, then applies its
+// members one merge at a time and asserts that each one is the sequential argmax at that moment.
 //
-//   c++ -std=c++20 -O2 tools/batchsim/batchsim.cpp -o build/batchsim
+//   cmake --build build --target batchsim
 //   build/batchsim --words runs/x/words.tsv --vocab-size 32000 [--rule closed] [--cap 256]
 //                  [--specials 1] [--threads 5] [--big 4096] [--dump-merges FILE]
 //

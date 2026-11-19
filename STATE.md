@@ -1,6 +1,6 @@
 # STATE: where the project is right now
 
-Updated 2026-11-13 · last commit: B10 (Studio work view) · CI green on B10 (`afd3ad1`)
+Updated 2026-11-18 · last commit: Cleanup (docs, C++, tooling) · CI: check `gh run list` after the push
 
 > One screen. **Overwrite, don't append**: history goes to `docs/HANDOFF.md` (dated log). Max ~60 lines.
 > Every agent updates this file before ending a session or committing a task.
@@ -8,11 +8,13 @@ Updated 2026-11-13 · last commit: B10 (Studio work view) · CI green on B10 (`a
 ## Now
 - All tasks B0–S9 and B8–B10 done. Every engine is byte-identical to IncrSerial at threads {1,2,3,4,8,16}.
 - `--merge-threads N|auto` (B8) is in: phase 3 on the 5 P-cores while phase 1 uses all 11.
-- Report draft builds: `report/report.pdf` (`cd report && tectonic report.tex`).
+- Report draft builds and is tracked: `report/report.pdf` (`cd report && tectonic report.tex`).
+- Cleanup pass done (2026-11-18, HANDOFF#cleanup): one row-rule loader `bench/results.py` for plots, report numbers
+  and the kill check; phase 1 = chunk + pre-tokenize everywhere; `encode` stub removed; docs refreshed.
 - Studio has **the race** (B9) and **the work** (B10: work units, real words rewritten per thread);
   `docs/notes/race.md`, `docs/notes/work_view.md`.
-- **Uncommitted:** TinyStories correction in `report/{numbers.py,numbers.tex,report.tex}` (the 0.94× is a
-  baseline-row effect, not parallel overhead; real loss is at 6–11 threads).
+- **Uncommitted:** TinyStories correction in `report/report.tex` (+ the PDF built from it); its macros are already
+  in `numbers.tex`. The 0.94× is a baseline-row effect, not parallel overhead; real loss is at 6–11 threads.
 
 ## Next (in order)
 1. On **mains power**: `.venv/bin/python -I bench/run_bench.py bench/configs/merge_threads.yaml --require-ac`
@@ -22,7 +24,9 @@ Updated 2026-11-13 · last commit: B10 (Studio work view) · CI green on B10 (`a
    `docs/notes/demo.md`. Commit `S9: report adds merge-on-P-cores results; TinyStories explained`.
 
 ## Waiting on the user
-- Mains power for benchmarks (Mac on battery as of 2026-11-13).
+- Mains power for benchmarks (on AC as of 2026-11-18).
+- Figure vs text: plot.py pools the IncrSerial baseline over all main CSVs, numbers.py uses each CSV's own, so the
+  wikitext.full v32k figure says 3.83× where the text says 3.91× (~2%). Pick one rule (user's call).
 - Student's review of the report draft; N5 (big machine, optional); submission deadline unknown.
 
 ## Traps (read before touching anything)
@@ -47,4 +51,5 @@ Updated 2026-11-13 · last commit: B10 (Studio work view) · CI green on B10 (`a
 | Studio race: what each element shows, what it doesn't | `docs/notes/race.md` |
 | Studio work view (units, words per thread), trace `unit` + `--trace-words` | `docs/notes/work_view.md` |
 | Benchmark results and plots | `results/*.csv`, `results/plots/`; report numbers via `report/numbers.py` |
+| Which benchmark rows count (warm-ups, stalls, phase 1) | `bench/results.py` |
 | Where code lives | `docs/HANDOFF.md#what-exists`; engines are `src/merge_*.cpp`, pretok `src/pretok_*.cpp` |
