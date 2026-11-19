@@ -371,6 +371,8 @@ All configs ran: 2,232 rows, 0 stalled, 0 failed, 0 on battery. **Every row for 
   the median of every IncrSerial row as the baseline. Quote the figures here, which match the plots and the Studio.)
   The B4 sweep's 1.83× came with a slower IncrSerial run; incr-batch itself took the same time.
 - TinyStories phase 3 is about 50–90 ms, so no engine gains there: incr-batch is 0.97–1.01× at 3–5 threads and 0.76× at 11.
+  (Later finding, B8: at 5 threads that is parity with IncrSerial, not overhead; the 11-thread loss comes from the
+  E-cores and `--merge-threads auto` removes it.)
 - **Total vs serial IncrSerial at 1 thread:** wikitext.full v32k 3.40× (5 threads) and 3.91× (11); tinystories.1G 4.44×
   and 6.23×. Phase 1 dominates, so totals track the pre-tokenizer.
 - `scale`: tinystories.full (2.2 GB) 20.4 s → 3.3 s at 11 threads; wikitext.x6 29.9 s → 6.3 s. wikitext.x6 phase 3
@@ -481,6 +483,20 @@ A repo-wide consistency pass at the user's request (report first, then fixes; pl
   matrix 0 mismatches on both 10 MB slices; mutations caught (stall filter dropped: 2 tests fail).
 - **Open (user's call):** plot.py pools the IncrSerial baseline over all main CSVs, numbers.py uses each CSV's
   own; the wikitext.full v32k figure shows 3.83× total where the text says 3.91×.
+
+### B8 benchmark + S9 update (2026-11-18, mains power)
+- `bench/configs/merge_threads.yaml` → `results/merge_threads.csv` (84 configs × 5, 0 failures, 0 stalls, one sha per
+  input and vocab) and `results/plots/merge_threads.png`.
+- Predictions (written before the run): (1) wikitext t11+auto phase 3 within 5% of t5: **met**, +0.2% at 32k
+  (378.8 vs 378.1 ms), +0.9% at 100k; absolute 0.379 s, not the 0.36 s guessed, but t5 moved by the same amount.
+  (2) total at t11+auto ≤ t11 and ≤ t5: **met on wikitext** (1.48 s vs 1.52 / 1.76 s at 32k), **missed on TinyStories**
+  by 2–4% (1.58 vs 1.52 s at 32k). The miss is in phase 1 (1.53 vs 1.45 s), which the setting doesn't touch; phase 1
+  was slower in all four auto cases and every auto run followed its all-threads run, so run order (heat) is the likely
+  cause, not tested. (3) TinyStories t11+auto merge ≈ 51 ms: **met**, 52.3 ms (64.5 ms with all threads).
+- incr-par recovers too (wikitext 32k at 11 threads: 1.04× → 1.21× with its own baseline).
+- Report: new §8.2 "Merging on the performance cores" (figure + numbers from `merge_threads.csv`, with its own
+  IncrSerial baseline, 645.6 ms), TinyStories paragraph and Limits point to it, conclusion and Reproducing updated, the
+  hash-row count is now computed (`\hashRows`, 2,736 rows, and numbers.py stops if any input has two hashes).
 
 ## What exists
 | Path | What it is |

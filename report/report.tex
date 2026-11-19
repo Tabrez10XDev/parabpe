@@ -222,10 +222,11 @@ Span figures in this report come from the latter mode; speedups from the former.
   same ids as the Python reference encoder.
 \end{itemize}
 
-Every benchmark row records the sha256 of its \code{merges.txt}. Across all 2{,}232 rows of the final benchmarks, each
+Every benchmark row records the sha256 of its \code{merges.txt}. Across all \hashRows{} rows of the final benchmarks, each
 input and vocabulary has exactly one hash.
 
 \section{Results}
+\label{sec:results}
 
 \paragraph{Setup.} Apple M3 Pro (5 performance + 6 efficiency cores), macOS 27.0.1, Apple clang 17, libomp 22.1.3,
 PCRE2 10.45. All timings on mains power; each configuration has a warm-up run and 5 measured repetitions (3 for the
@@ -254,17 +255,53 @@ TinyStories 1\,GB, 32k & \tsBaseMerge\,s & \tsParFive\x & \tsBatchThree\x & \tsB
 On WikiText-103, batching turns a merge phase that one-merge-per-step parallelism barely moves into a
 \wtBatchFive\x{} speedup at 5 threads (Table~\ref{tab:phase3}). The gain shrinks at vocabulary 100k, where later merges
 have small counts and many ties, so batches are smaller (span \wtSpanC\x{} against \wtSpan\x). Beyond 5 threads the
-efficiency cores slow every round down to their pace, and the speedup drops. The B4 sweep that chose the defaults
+efficiency cores slow every round down to their pace, and the speedup drops; Section~\ref{sec:pcores} keeps the
+merge phase off them. The B4 sweep that chose the defaults
 measured \killSweep\x{} and \killSweepC\x{} with its own IncrSerial runs (\code{b4\_sweep.csv}), where IncrSerial happened to run slower; the gap is
 comparable to the run-to-run spread seen there (up to 12\% min--max for IncrSerial, 22\% for \code{incr-batch}).
 
-On TinyStories the merge phase takes only \tsBaseMergeMs\,ms and batches stay small (Section~\ref{sec:limits}), so no
-engine gains: \code{incr-batch} is slightly slower than IncrSerial at 3--5 threads (\tsBatchFive\x) and clearly
-slower at 11 (\tsBatchEleven\x).
+On TinyStories the merge phase takes only \tsBaseMergeMs\,ms and batches stay small (Section~\ref{sec:limits}), so
+nothing is gained, but on the performance cores nothing is lost either. At 5 threads \code{incr-batch} takes
+\tsMsBatchFive\,ms, the same as IncrSerial run after the parallel pre-tokenizer (\tsMsSerFive\,ms). The
+\tsBatchFive\x{} in Table~\ref{tab:phase3} comes from the baseline row: its phase 1 used the serial pre-tokenizer, and
+IncrSerial itself takes \tsMsSerOne\,ms against \tsBaseMergeMs\,ms when only that changes, at 1 thread. The merge code
+and the word table are the same, so this is not parallel overhead; on WikiText-103 the same comparison goes the other
+way (\wtMsSerOne\,ms against \wtBaseMergeMs\,ms). The real loss on TinyStories is at 11 threads (\tsMsBatchEleven\,ms,
+\tsBatchEleven\x), when efficiency cores join the merge team; Section~\ref{sec:pcores} removes that loss.
 
 \paragraph{Whole run.} Pre-tokenizing dominates the total. Against IncrSerial at 1 thread, the full pipeline with
 \code{incr-batch} is \wtTotFive\x{} faster at 5 threads and \wtTotEleven\x{} at 11 on WikiText-103 (IncrSerial with the
 parallel pre-tokenizer: \wtTotSerFive\x{} and \wtTotSerEleven\x), and \tsTotFive\x{} and \tsTotEleven\x{} on TinyStories.
+
+\subsection{Merging on the performance cores}
+\label{sec:pcores}
+
+\begin{figure}[h]
+\centering
+\includegraphics[width=\linewidth]{merge_threads.png}
+\caption{Phase 3 speedup with the merge team on all threads (solid) or on the performance cores only (dashed,
+\code{-{}-merge-threads auto}); phase 1 always uses every thread. \code{merge\_threads.csv}, median of 5.}
+\label{fig:mergethreads}
+\end{figure}
+
+Phase 1 wants every core and phase 3 does not: past 5 threads a parallel round waits for its slowest owner, and some
+owners run on efficiency cores. \code{-{}-merge-threads auto} keeps phase 1 on all threads and runs phase 3 on the
+performance cores (\code{hw.perflevel0.physicalcpu}, at most \code{-{}-threads}). The engines are unchanged, so the
+output is too; the equivalence matrix includes mixed teams. In a separate run on mains power (\code{merge\_threads.csv},
+with its own IncrSerial baseline of \mtWtMsSer\,ms on WikiText-103 at 32k), \code{incr-batch} at 11 threads takes
+\mtWtMsEleven\,ms to merge with all 11 threads, \mtWtMsAuto\,ms with \code{auto}, and \mtWtMsFive\,ms with 5 threads
+overall (\mtWtSpEleven\x, \mtWtSpAuto\x{} and \mtWtSpFive\x; at 100k, \mtWtSpElevenC\x{} becomes \mtWtSpAutoC\x).
+So the idle OpenMP workers left over from the 11-thread phase 1 do not slow the 5-thread team, and no
+\code{omp\_pause\_resource} call was needed. The whole run gains too: \mtWtTotAuto\x{} against \mtWtTotEleven\x{}
+(\mtWtTotAutoC\x{} against \mtWtTotElevenC\x{} at 100k). \code{incr-par} recovers in the same way (\mtWtParEleven\x{}
+to \mtWtParAuto\x; Figure~\ref{fig:mergethreads}).
+
+On TinyStories the merge phase returns to IncrSerial's time (\mtTsMsAuto\,ms against \mtTsMsSer\,ms, from
+\mtTsMsEleven\,ms with all threads). Its whole run, however, measured \mtTsTotAuto\x{} against \mtTsTotEleven\x{}: phase 1,
+which the setting does not touch, took \mtTsPoneAuto\,s against \mtTsPoneEleven\,s. Phase 1 was slower in the
+\code{auto} runs in all four corpus and vocabulary cases, and every \code{auto} run came straight after its all-threads
+counterpart, so we attribute the difference to run order (a warmer chip) rather than to the setting. We did not test
+this.
 
 \subsection{Span and load balance}
 
@@ -303,6 +340,11 @@ of it (\code{trace\_wikitext.full\_v32000\_t11.md}), so every parallel round wai
 
 \subsection{Scale points}
 
+Table~\ref{tab:scale} repeats the measurement on the largest inputs we have. WikiText $\times$6 adds bytes but
+no new words, so phase 1 grows while the merge phase stays the same, and the whole-run speedup at 11 threads rises
+from \wtTotEleven\x{} to \scWxTotEleven\x. The full TinyStories stays close to its 1\,GB slice (\scTsTotEleven\x{}
+against \tsTotEleven\x).
+
 \begin{table}[h]
 \centering\small
 \begin{tabular}{lrrrr}
@@ -318,6 +360,7 @@ WikiText $\times$6, 100k & \scWxSerialC\,s & \scWxBatchElevenC\,s & \scWxTotElev
 \end{tabular}
 \caption{Largest inputs (\code{scale.csv}, median of 3). WikiText $\times$6 is six copies of WikiText-103: more bytes, the
 same unique words, so its merge phase equals WikiText-103's.}
+\label{tab:scale}
 \end{table}
 
 \subsection{Comparison with Hugging Face \code{tokenizers}}
@@ -341,7 +384,9 @@ HF breaks ties by pair id rather than by our byte order, so its merge list diffe
 \begin{itemize}
 \item \textbf{Tie-heavy corpora.} On TinyStories most rounds are single merges (\tsDefaultRounds{} rounds for \tsMerges{}
   merges at 32k): the vocabulary is small and repetitive, ties are frequent, and the merge phase is a few tens of
-  milliseconds, so the batching machinery has nothing to amortise.
+  milliseconds, so the batching machinery has nothing to amortise. It runs at parity with IncrSerial on the performance
+  cores rather than below it (Section~\ref{sec:results}), and with \code{-{}-merge-threads auto} also at 11 threads
+  (Section~\ref{sec:pcores}).
 \item \textbf{The master is serial.} Selection and order updates are the remaining Amdahl term (Section 8.3).
 \item \textbf{One machine, no pinning.} All results come from one laptop. macOS cannot pin threads, so the scheduler places
   them; the P/E labels in traces are samples, not placements.
@@ -371,16 +416,22 @@ something doesn't exist; sources and limits are in \code{docs/notes/related\_wor
 The merge chain of BPE training looks inherently sequential, but much of it is not: on WikiText-103 a closed-form rule
 finds batches that cover \wtSpan\x{} fewer steps, and a proof shows they reproduce sequential training byte for byte. On a
 laptop with 5 performance cores this turns the merge phase from \wtParFive\x{} into \wtBatchFive\x{}, with every output
-checked against the serial baseline. The next limit is the serial master: parallel selection is the obvious next step.
+checked against the serial baseline, and keeping the merge phase on the performance cores holds that speedup at 11
+threads. The next limit is the serial master: parallel selection is the obvious next step.
 
 \appendix
 \section{Reproducing}
 \begin{verbatim}
-cmake -B build -DCMAKE_BUILD_TYPE=Release && cmake --build build -j
-ctest --test-dir build --output-on-failure
-.venv/bin/python -I bench/run_bench.py bench/configs/batch.yaml --require-ac
-.venv/bin/python -I bench/plot.py results/*.csv --out-dir results/plots
-.venv/bin/python -I report/numbers.py        # regenerates report/numbers.tex
+scripts/build_pcre2.sh ~/pcre2   # PCRE2 10.45: the spec pins Unicode 16
+cmake -B build -DCMAKE_BUILD_TYPE=Release \
+  -DPCRE2_INCLUDE_DIR=$HOME/pcre2/include \
+  -DPCRE2_LIBRARY=$HOME/pcre2/lib/libpcre2-8.a
+cmake --build build -j && ctest --test-dir build
+PY=".venv/bin/python -I"
+$PY bench/run_bench.py bench/configs/batch.yaml --require-ac
+$PY bench/run_bench.py bench/configs/merge_threads.yaml --require-ac
+$PY bench/plot.py results/*.csv --out-dir results/plots
+$PY report/numbers.py      # regenerates report/numbers.tex
 \end{verbatim}
 
 \end{document}

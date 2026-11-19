@@ -31,7 +31,7 @@ Work through the tasks in **pick-up order**. A task can start once everything in
 | 21 | B6 Trace (`--trace`, P/E labels) | ✅ | B3 |
 | 22 | B7 ParaBPE Studio | ✅ (demo rehearsal is the student's) | B6, S8 |
 | 23 | S9 Report | ✅ draft built (`report/report.pdf`); student's review pending | S8, B7 |
-| 24 | B8 `--merge-threads auto` (phase 3 on P-cores; replaces the TinyStories fallback idea) | ✅ code + tests; benchmark needs **mains power** | S8, B6 |
+| 24 | B8 `--merge-threads auto` (phase 3 on P-cores; replaces the TinyStories fallback idea) | ✅ (benchmark: `results/merge_threads.csv`, report §8.2) | S8, B6 |
 | 25 | B9 Studio: the race (two or three recorded runs replayed on one clock, with a core map) | ✅ | B7, B8 |
 | 26 | B10 Studio: the work (corpus work units, real words rewritten per thread) | ✅ | B6, B7 |
 | — | N5 Get big-machine access (optional) | ⬜ **human task** | — |
@@ -399,6 +399,9 @@ Added 2026-11-09 at the user's request. At 11 threads phase 3 slows down because
 - **Item 3 (serial fallback for small inputs) was dropped with the user's approval:** TinyStories' 0.94× is not parallel
   overhead. IncrSerial with the same OMP pre-tokenizer takes the same 51.4 ms as incr-batch at 5 threads; the gap is to
   the baseline row (serial pre-tokenizer, 48.1 ms). The real small-input loss is at 6–11 threads, which `auto` removes.
+- **Benchmark done (2026-11-18, mains power).** wikitext.full v32k incr-batch phase 3 at 11 threads: 439.6 ms →
+  378.8 ms with `auto` (5 threads: 378.1 ms); TinyStories 64.5 → 52.3 ms (IncrSerial 51.8 ms). One prediction missed:
+  TinyStories total with `auto` was 2–4% slower, from phase 1 (not touched by the setting; run order suspected).
 
 ### B9: Studio, the race
 Added 2026-11-13 at the user's request: one simple, visible parallel-computing demo. Two or three recorded runs on the

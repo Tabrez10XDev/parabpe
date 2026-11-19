@@ -34,7 +34,8 @@ measured value is used and the difference is listed at the end.
    threads."
 6. **Before/after** (Phase 3 chart, then Owner load). "IncrPar, one merge per step: 1.15× at 5 threads. incr-batch:
    1.63× (1.31× at vocab 100k). Hashing words to owners cuts the busiest owner from 2.30× the mean to 1.08." Also: "on
-   the E-cores it drops (1.38× at 11 threads), because each round waits for the slowest owner."
+   the E-cores it drops (1.38× at 11 threads), because each round waits for the slowest owner. With the merges kept
+   on the five performance cores (`--merge-threads auto`), the 11-thread run merges as fast as the 5-thread one."
 7. **The race** (Race card: "Train race set" with the Train form at wikitext.full, vocab 32,000, 11 threads, about
    8 s for both lanes; or load the two runs trained before the talk). Play at "fit to 20 s". "Lane A is IncrSerial on one
    thread, the baseline every number in this project is measured against. Lane B is incr-batch on 11 threads with the
