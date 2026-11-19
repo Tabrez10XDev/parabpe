@@ -13,9 +13,7 @@
 #include <stdexcept>
 #include <utility>
 
-#ifdef __APPLE__
-#include <sys/sysctl.h>
-#endif
+#include "sysctl.hpp"
 
 namespace parabpe {
 namespace {
@@ -48,29 +46,15 @@ struct Hardware {
 };
 
 #ifdef __APPLE__
-std::string sysctl_string(const char* name) {
-  size_t size = 0;
-  if (sysctlbyname(name, nullptr, &size, nullptr, 0) != 0 || size == 0) return "unknown";
-  std::string s(size, '\0');
-  if (sysctlbyname(name, s.data(), &size, nullptr, 0) != 0) return "unknown";
-  s.resize(s.find('\0') == std::string::npos ? size : s.find('\0'));
-  return s;
-}
-
-int sysctl_int(const char* name) {
-  int value = 0;
-  size_t size = sizeof(value);
-  return sysctlbyname(name, &value, &size, nullptr, 0) == 0 ? value : -1;
-}
-
 Hardware detect_hardware() {
+  using detail::sysctl_int, detail::sysctl_string;
   Hardware h;
-  h.cpu_model = sysctl_string("machdep.cpu.brand_string");
+  h.cpu_model = sysctl_string("machdep.cpu.brand_string", "unknown");
   h.physical_cores = sysctl_int("hw.physicalcpu");
   h.logical_cores = sysctl_int("hw.logicalcpu");
-  h.performance_cores = sysctl_int("hw.perflevel0.physicalcpu");
+  h.performance_cores = performance_cores();  // the count --merge-threads auto uses
   h.efficiency_cores = sysctl_int("hw.perflevel1.physicalcpu");
-  h.os = "macOS " + sysctl_string("kern.osproductversion");
+  h.os = "macOS " + sysctl_string("kern.osproductversion", "unknown");
   return h;
 }
 #else
@@ -114,27 +98,24 @@ std::string git_sha() {
   return "unknown";
 }
 
-const char* name_of(PretokStrategy s) {
-  return s == PretokStrategy::Serial ? "serial" : "omp";
-}
-
-const char* name_of(PretokReduce r) {
-  return r == PretokReduce::Bucketed ? "bucketed" : "critical";
-}
-
-const char* name_of(OwnerMap m) {
-  return m == OwnerMap::Hashed ? "hashed" : "contiguous";
-}
-
-const char* name_of(MergeStrategy s) {
-  switch (s) {
-    case MergeStrategy::NaiveSerial: return "naive-serial";
-    case MergeStrategy::IncrSerial: return "incr-serial";
-    case MergeStrategy::NaivePar: return "naive-par";
-    case MergeStrategy::IncrPar: return "incr-par";
-    case MergeStrategy::IncrBatch: return "incr-batch";
+template <class E, size_t N>
+const char* name_in(const NamedValue<E> (&table)[N], E value) {
+  for (const auto& e : table) {
+    if (e.value == value) return e.name;
   }
   return "unknown";
+}
+const char* name_of(PretokStrategy s) {
+  return name_in(kPretokNames, s);
+}
+const char* name_of(PretokReduce r) {
+  return name_in(kPretokReduceNames, r);
+}
+const char* name_of(OwnerMap m) {
+  return name_in(kOwnerMapNames, m);
+}
+const char* name_of(MergeStrategy s) {
+  return name_in(kMergeNames, s);
 }
 
 // The additive "batch" block of timings.json, written for incr-batch only.
@@ -146,11 +127,11 @@ std::string format_batch_stats(const MergeStats& s, const TrainConfig& cfg) {
   std::ostringstream o;
   o << "  \"batch\": {\"rounds\": " << s.rounds << ", \"max_batch\": " << s.max_batch
     << ", \"parallel_rounds\": " << s.parallel_rounds << ", \"changed_pairs\": " << s.changed_pairs
-    << ", \"small_rounds\": " << s.small_rounds
-    << ", \"select\": " << format_double(s.select_s) << ", \"order\": " << format_double(s.order_s)
+    << ", \"small_rounds\": " << s.small_rounds << ", \"select\": " << format_double(s.select_s)
+    << ", \"order\": " << format_double(s.order_s)
     << ", \"owners_per_thread\": " << cfg.owners_per_thread
-    << ", \"scan_cap\": " << cfg.batch_scan_cap << ", \"verified\": "
-    << (cfg.verify_batches ? "true" : "false") << ", \"sizes\": {";
+    << ", \"scan_cap\": " << cfg.batch_scan_cap
+    << ", \"verified\": " << (cfg.verify_batches ? "true" : "false") << ", \"sizes\": {";
   for (size_t i = 0; i < kSizes.size(); ++i) {
     o << (i ? ", " : "") << '"' << kSizes[i] << "\": " << s.batch_hist[i];
   }
@@ -295,8 +276,8 @@ std::string format_timings(const TrainResult& result, const std::string& input,
   o << "  \"config\": {\"input\": " << json_string(input) << ", \"vocab_size\": " << cfg.vocab_size
     << ", \"threads\": " << cfg.threads << ", \"merge_threads\": " << resolve_merge_threads(cfg)
     << ", \"pretok\": \"" << name_of(cfg.pretok) << "\", \"pretok_reduce\": \""
-    << name_of(cfg.pretok_reduce) << "\", \"merge\": \""
-    << name_of(cfg.merge) << "\", \"par_threshold_tokens\": " << cfg.par_threshold_tokens
+    << name_of(cfg.pretok_reduce) << "\", \"merge\": \"" << name_of(cfg.merge)
+    << "\", \"par_threshold_tokens\": " << cfg.par_threshold_tokens
     << ", \"work_unit_bytes\": " << cfg.work_unit_bytes << "},\n"
     << "  \"hardware\": {\"cpu_model\": " << json_string(h.cpu_model)
     << ", \"physical_cores\": " << h.physical_cores << ", \"logical_cores\": " << h.logical_cores

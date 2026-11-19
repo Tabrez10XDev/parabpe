@@ -36,7 +36,7 @@ enum class PretokStrategy { Serial, OMP };
 // OMP pre-tokenizer: how thread-local word maps are combined (critical = the report's baseline).
 enum class PretokReduce { Bucketed, Critical };
 enum class MergeStrategy { NaiveSerial, IncrSerial, NaivePar, IncrPar, IncrBatch };
-// How IncrPar assigns words to owners (B5). IncrBatch is always hashed.
+// How IncrPar assigns words to owners (B5). IncrBatch always hashes them (one owner on one thread).
 enum class OwnerMap { Contiguous, Hashed };
 
 // TrainConfig::merge_threads: as many threads as there are performance cores, at most `threads`.
@@ -51,16 +51,17 @@ struct TrainConfig {
   PretokStrategy pretok = PretokStrategy::Serial;
   PretokReduce pretok_reduce = PretokReduce::Bucketed;
   MergeStrategy merge = MergeStrategy::IncrSerial;
-  size_t par_threshold_tokens = 4096;  // IncrPar: below this, the master does the step alone
+  size_t par_threshold_tokens = 4096;  // IncrPar, IncrBatch: smaller steps/rounds run on the master
   OwnerMap owner_map = OwnerMap::Contiguous;  // IncrPar only
   bool owner_stats = false;  // IncrPar: measure owner load (an extra pass over touched words)
-  size_t work_unit_bytes = 1 << 20;    // fixed, independent of thread count (SPEC.md §2)
-  bool verify_batches = false;         // IncrBatch: check every member against a sequential oracle
-  size_t owners_per_thread = 1;        // IncrBatch: hashed owners per thread (B4 sweep: 1 is best)
-  size_t batch_scan_cap = 4096;        // IncrBatch: live tie-group entries scanned per round
-  bool batch_skip_small = true;  // IncrBatch: a round too small to go parallel merges one pair
-  std::string trace_path;        // --trace: Chrome Trace JSON output, empty = off
-  std::string trace_words_path;  // --trace-words: frequent words + their owners (Studio), empty = off
+  size_t work_unit_bytes = 1 << 20;  // fixed, independent of thread count (SPEC.md §2)
+  bool verify_batches = false;       // IncrBatch: check every member against a sequential oracle
+  size_t owners_per_thread = 1;      // IncrBatch: hashed owners per thread (B4 sweep: 1 is best)
+  size_t batch_scan_cap = 4096;      // IncrBatch: live tie-group entries scanned per round
+  bool batch_skip_small = true;      // IncrBatch: a round too small to go parallel merges one pair
+  std::string trace_path;            // --trace: Chrome Trace JSON output, empty = off
+  std::string
+      trace_words_path;  // --trace-words: frequent words + their owners (Studio), empty = off
 };
 
 // Output of phase 1: unique pre-tokens (raw bytes) and their frequencies.
@@ -92,8 +93,9 @@ struct MergeStats {
   std::array<uint64_t, 9> batch_hist{};  // sizes 1, 2, 3-4, 5-8, 9-16, 17-32, 33-64, 65-128, 129+
   std::array<uint64_t, 5> stops{};       // indexed by BatchStop
   double select_s = 0, order_s = 0;      // serial selection and heap-update time in phase 3
-  // IncrPar with owner_stats: tokens rewritten on steps of at least kBigStepTokens, summed over
-  // those steps. owner_busiest / owner_mean is the token-weighted busiest/mean owner load.
+  // IncrPar with owner_stats: tokens rewritten on big steps (src/incr_common.hpp, kBigStepTokens),
+  // summed over those steps. owner_busiest / owner_mean is the token-weighted busiest/mean owner
+  // load.
   uint64_t big_steps = 0;
   double owner_busiest = 0, owner_mean = 0;
 };

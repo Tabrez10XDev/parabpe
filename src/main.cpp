@@ -31,6 +31,14 @@ int run_train(const std::string& input, const std::string& out_dir, const TrainC
   return 0;
 }
 
+// A NamedValue table as the map CLI11's transformers take.
+template <class E, size_t N>
+std::map<std::string, E> name_map(const NamedValue<E> (&table)[N]) {
+  std::map<std::string, E> m;
+  for (const auto& e : table) m.emplace(e.name, e.value);
+  return m;
+}
+
 }  // namespace
 
 int main(int argc, char** argv) {
@@ -42,43 +50,43 @@ int main(int argc, char** argv) {
   std::vector<std::string> specials;
   bool no_special = false, dump_words = false;
 
-  const std::map<std::string, PretokStrategy> pretok_map{
-      {"serial", PretokStrategy::Serial}, {"omp", PretokStrategy::OMP}};
-  const std::map<std::string, PretokReduce> reduce_map{
-      {"bucketed", PretokReduce::Bucketed}, {"critical", PretokReduce::Critical}};
-  const std::map<std::string, MergeStrategy> merge_map{
-      {"naive-serial", MergeStrategy::NaiveSerial},
-      {"incr-serial", MergeStrategy::IncrSerial},
-      {"naive-par", MergeStrategy::NaivePar},
-      {"incr-par", MergeStrategy::IncrPar},
-      {"incr-batch", MergeStrategy::IncrBatch}};
-
-  const std::map<std::string, OwnerMap> owner_map{{"contiguous", OwnerMap::Contiguous},
-                                                  {"hashed", OwnerMap::Hashed}};
+  const auto pretok_map = name_map(kPretokNames);
+  const auto reduce_map = name_map(kPretokReduceNames);
+  const auto merge_map = name_map(kMergeNames);
+  const auto owner_map = name_map(kOwnerMapNames);
 
   auto* tr = app.add_subcommand("train", "Train merges on a prepared corpus");
   tr->add_option("--input", input, "Prepared corpus (UTF-8, <|endoftext|>-separated)")
       ->required()
       ->check(CLI::ExistingFile);
   tr->add_option("--out", out_dir, "Output directory");
-  tr->add_option("--vocab-size", cfg.vocab_size)->check(CLI::Range(257, 1 << 20));
-  tr->add_option("--threads", cfg.threads)->check(CLI::PositiveNumber);
-  tr->add_option("--merge-threads", cfg.merge_threads,
-                 "Threads for phase 3 (merging): N, or auto = the performance cores, at most --threads "
-                 "(default: --threads)")
+  tr->add_option("--vocab-size", cfg.vocab_size, "Target vocabulary size, specials included")
+      ->check(CLI::Range(257, 1 << 20));
+  tr->add_option("--threads", cfg.threads, "Threads (phase 1, and phase 3 unless --merge-threads)")
+      ->check(CLI::PositiveNumber);
+  tr->add_option(
+        "--merge-threads", cfg.merge_threads,
+        "Threads for phase 3 (merging): N, or auto = the performance cores, at most --threads "
+        "(default: --threads)")
       ->transform(CLI::Transformer(std::map<std::string, int>{{"auto", kMergeThreadsAuto}}))
       ->check(CLI::PositiveNumber | CLI::IsMember({kMergeThreadsAuto}));
-  tr->add_option("--pretok", cfg.pretok)->transform(CLI::CheckedTransformer(pretok_map));
+  tr->add_option("--pretok", cfg.pretok, "Pre-tokenizer: serial (default) or omp")
+      ->transform(CLI::CheckedTransformer(pretok_map));
   tr->add_option("--pretok-reduce", cfg.pretok_reduce,
                  "OMP pre-tokenizer merge: bucketed (default) or critical")
       ->transform(CLI::CheckedTransformer(reduce_map));
-  tr->add_option("--merge", cfg.merge)->transform(CLI::CheckedTransformer(merge_map));
-  tr->add_option("--par-threshold-tokens", cfg.par_threshold_tokens);
+  tr->add_option(
+        "--merge", cfg.merge,
+        "Merge engine: naive-serial, incr-serial (default), naive-par, incr-par, incr-batch")
+      ->transform(CLI::CheckedTransformer(merge_map));
+  tr->add_option("--par-threshold-tokens", cfg.par_threshold_tokens,
+                 "incr-par, incr-batch: smaller steps or rounds run on the master alone");
   tr->add_option("--owner-map", cfg.owner_map, "incr-par: how words are assigned to owners")
       ->transform(CLI::CheckedTransformer(owner_map));
   tr->add_flag("--owner-stats", cfg.owner_stats,
                "incr-par: report busiest/mean owner load (slows the run; not for timings)");
-  tr->add_option("--work-unit-bytes", cfg.work_unit_bytes);
+  tr->add_option("--work-unit-bytes", cfg.work_unit_bytes,
+                 "Phase 1 work unit size in bytes of whole documents (SPEC.md §2)");
   tr->add_flag("--verify-batches", cfg.verify_batches,
                "incr-batch: check every member against a sequential oracle");
   tr->add_option("--owners-per-thread", cfg.owners_per_thread,
@@ -88,20 +96,16 @@ int main(int argc, char** argv) {
                  "incr-batch: tie-group entries scanned per round");
   tr->add_flag("!--batch-full-rounds", cfg.batch_skip_small,
                "incr-batch: batch every round, even ones too small to go parallel (span figures)");
-  tr->add_option("--trace", cfg.trace_path, "Write a Chrome Trace Event JSON file (ui.perfetto.dev)");
-  tr->add_option("--trace-words", cfg.trace_words_path,
-                 "Write the most frequent words (4+ bytes) with their phase-3 owner as JSON (Studio)");
-  auto* special_opt = tr->add_option("--special", specials,
-                                     "Special token, repeatable (default: <|endoftext|>)")
-                          ->allow_extra_args(false);
+  tr->add_option("--trace", cfg.trace_path,
+                 "Write a Chrome Trace Event JSON file (ui.perfetto.dev)");
+  tr->add_option(
+      "--trace-words", cfg.trace_words_path,
+      "Write the most frequent words (4+ bytes) with their phase-3 owner as JSON (Studio)");
+  auto* special_opt =
+      tr->add_option("--special", specials, "Special token, repeatable (default: <|endoftext|>)")
+          ->allow_extra_args(false);
   tr->add_flag("--no-special", no_special, "Train with no special tokens")->excludes(special_opt);
   tr->add_flag("--dump-words", dump_words, "Write <out>/words.tsv after phase 1 and stop");
-
-  auto* enc = app.add_subcommand("encode", "Encode text with trained merges (S2+)");
-  std::string model_dir, enc_input, enc_out;
-  enc->add_option("--model", model_dir)->required();
-  enc->add_option("--input", enc_input)->required();
-  enc->add_option("--out", enc_out)->required();
 
   CLI11_PARSE(app, argc, argv);
 
@@ -111,10 +115,6 @@ int main(int argc, char** argv) {
       if (no_special) cfg.special_tokens.clear();
       if (!specials.empty()) cfg.special_tokens = specials;
       return run_train(input, out_dir, cfg, dump_words);
-    }
-    if (*enc) {
-      std::cerr << "encode: not implemented yet\n";
-      return 2;
     }
   } catch (const std::exception& e) {
     std::cerr << "error: " << e.what() << "\n";

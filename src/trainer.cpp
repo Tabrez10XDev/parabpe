@@ -9,12 +9,9 @@
 #include "parabpe/io.hpp"
 #include "parabpe/merge_engine.hpp"
 #include "parabpe/pretokenizer.hpp"
+#include "sysctl.hpp"
 #include "trace.hpp"
 #include "trace_words.hpp"
-
-#ifdef __APPLE__
-#include <sys/sysctl.h>
-#endif
 
 namespace parabpe {
 namespace {
@@ -66,12 +63,8 @@ TrainResult run_pipeline(std::string_view text, const TrainConfig& cfg, double t
 
 int performance_cores() {
 #ifdef __APPLE__
-  auto get = [](const char* name) {
-    int value = 0;
-    size_t size = sizeof(value);
-    return sysctlbyname(name, &value, &size, nullptr, 0) == 0 ? value : -1;
-  };
-  if (get("hw.nperflevels") >= 2) return get("hw.perflevel0.physicalcpu");
+  if (detail::sysctl_int("hw.nperflevels") >= 2)
+    return detail::sysctl_int("hw.perflevel0.physicalcpu");
 #endif
   return -1;
 }

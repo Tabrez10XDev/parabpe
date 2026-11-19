@@ -187,13 +187,16 @@ std::vector<Occurrence> find_specials_parallel(std::string_view text,
   const size_t n = text.size();
   size_t max_len = 0;
   for (const auto& s : specials) max_len = std::max(max_len, s.size());
-  std::vector<std::vector<Occurrence>> found(threads);
+  struct alignas(64) Found {  // one cache line per thread: push_back writes the vector header
+    std::vector<Occurrence> list;
+  };
+  std::vector<Found> found(threads);
 #pragma omp parallel for schedule(dynamic, 1) num_threads(threads)
   for (int r = 0; r < threads; ++r) {
     const size_t begin = n * r / threads, end = n * (r + 1) / threads;
     const detail::TraceSpan span(detail::TraceKind::Chunk, end - begin);
     const std::string_view window = text.substr(begin, end - begin + max_len - 1);
-    std::vector<Occurrence>& mine = found[r];
+    std::vector<Occurrence>& mine = found[r].list;
     for (const auto& s : specials) {
       for (size_t p = window.find(s); p != std::string_view::npos && begin + p < end;
            p = window.find(s, p + 1)) {
@@ -205,7 +208,7 @@ std::vector<Occurrence> find_specials_parallel(std::string_view text,
     });
   }
   std::vector<Occurrence> all;
-  for (const auto& f : found) all.insert(all.end(), f.begin(), f.end());
+  for (const auto& f : found) all.insert(all.end(), f.list.begin(), f.list.end());
   return all;
 }
 

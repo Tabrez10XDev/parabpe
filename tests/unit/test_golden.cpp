@@ -39,7 +39,7 @@ TEST(Golden, MergesAndVocabMatchReference) {
         cfg.special_tokens = gc.specials;
         cfg.merge = engine;
         cfg.threads = threads;
-        cfg.par_threshold_tokens = 0;  // IncrPar: every merge step takes the parallel path
+        cfg.par_threshold_tokens = 0;  // IncrPar, IncrBatch: every step takes the parallel path
         cfg.verify_batches = true;     // IncrBatch: every member against the sequential oracle
         cfg.batch_skip_small = false;  // IncrBatch: batch at every thread count, 1 included
         const std::string text = test::read_file(gc.dir / "input.txt");

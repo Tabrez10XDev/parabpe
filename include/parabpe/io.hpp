@@ -9,6 +9,25 @@
 
 namespace parabpe {
 
+// The name of each strategy, used by the CLI and in timings.json: one table for both.
+template <class E>
+struct NamedValue {
+  const char* name;
+  E value;
+};
+inline constexpr NamedValue<PretokStrategy> kPretokNames[] = {{"serial", PretokStrategy::Serial},
+                                                              {"omp", PretokStrategy::OMP}};
+inline constexpr NamedValue<PretokReduce> kPretokReduceNames[] = {
+    {"bucketed", PretokReduce::Bucketed}, {"critical", PretokReduce::Critical}};
+inline constexpr NamedValue<MergeStrategy> kMergeNames[] = {
+    {"naive-serial", MergeStrategy::NaiveSerial},
+    {"incr-serial", MergeStrategy::IncrSerial},
+    {"naive-par", MergeStrategy::NaivePar},
+    {"incr-par", MergeStrategy::IncrPar},
+    {"incr-batch", MergeStrategy::IncrBatch}};
+inline constexpr NamedValue<OwnerMap> kOwnerMapNames[] = {{"contiguous", OwnerMap::Contiguous},
+                                                          {"hashed", OwnerMap::Hashed}};
+
 // GPT-2 byte -> printable unicode codepoint mapping, UTF-8 encoded (SPEC.md §5).
 const std::array<std::string, 256>& bytes_to_unicode();
 

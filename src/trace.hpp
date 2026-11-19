@@ -36,8 +36,7 @@ enum class TraceKind : uint8_t {
 };
 inline constexpr int kTraceKinds = 8;
 
-const char* trace_name(TraceKind kind);      // "CHUNK", "PRETOK_UNIT", ...
-const char* trace_arg_name(TraceKind kind);  // what `arg` counts: "bytes", "owner", ...
+const char* trace_name(TraceKind kind);       // "CHUNK", "PRETOK_UNIT", ...
 const char* trace_arg2_name(TraceKind kind);  // what `arg2` holds, or nullptr when unused
 
 struct TraceEvent {
@@ -67,7 +66,8 @@ class Tracer {
   explicit Tracer(int threads);
 
   // Appends to the calling OpenMP thread's buffer. A thread number with no buffer is counted as
-  // dropped (it would mean a parallel region wider than cfg.threads).
+  // dropped (it would mean a parallel region wider than the tracer, which the pipeline sizes for
+  // max(threads, merge threads)).
   void add(const TraceEvent& e) {
     const int t = omp_get_thread_num();
     if (t >= 0 && static_cast<size_t>(t) < buffers_.size()) {

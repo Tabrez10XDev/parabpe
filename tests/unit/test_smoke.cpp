@@ -5,7 +5,6 @@
 #include <pcre2.h>
 
 #include <ankerl/unordered_dense.h>
-#include <cstdio>
 #include <filesystem>
 #include <fstream>
 #include <string>

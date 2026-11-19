@@ -5,30 +5,20 @@
 
 #include <algorithm>
 #include <cstdio>
-#include <fstream>
-#include <random>
-#include <sstream>
 #include <string>
 
 #include "parabpe/trainer.hpp"
 #include "trace.hpp"
+#include "trace_test_util.hpp"
 
 using namespace parabpe;
 using detail::TraceKind;
 using detail::Tracer;
+using test::occurrences;
+using test::random_text;
+using test::traced;
 
 namespace {
-
-std::string random_text(unsigned seed, int n) {
-  std::mt19937 rng(seed);
-  const std::string alphabet = "abcdefgh  \n";
-  std::string text;
-  for (int i = 0; i < n; ++i) {
-    text += alphabet[rng() % alphabet.size()];
-    if (i % 400 == 399) text += "<|endoftext|>";
-  }
-  return text;
-}
 
 // Every round parallel (threshold 0), so each round records one OWNER_MERGE per owner.
 TrainConfig config(MergeStrategy merge, int threads, int merge_threads) {
@@ -42,19 +32,6 @@ TrainConfig config(MergeStrategy merge, int threads, int merge_threads) {
   cfg.par_threshold_tokens = 0;
   cfg.batch_skip_small = false;
   return cfg;
-}
-
-TrainResult traced(const std::string& text, const TrainConfig& cfg, Tracer& tracer) {
-  detail::g_tracer = &tracer;
-  TrainResult r;
-  try {
-    r = train_text(text, cfg);
-  } catch (...) {
-    detail::g_tracer = nullptr;
-    throw;
-  }
-  detail::g_tracer = nullptr;
-  return r;
 }
 
 bool is_phase3(TraceKind k) {
@@ -71,12 +48,6 @@ int last_phase3_thread(const Tracer& tracer) {
     }
   }
   return last;
-}
-
-size_t occurrences(const std::string& s, const std::string& needle) {
-  size_t n = 0;
-  for (size_t p = s.find(needle); p != std::string::npos; p = s.find(needle, p + 1)) ++n;
-  return n;
 }
 
 // Which threads pick up owners is up to the OpenMP scheduler (under TSan thread 0 can take them
@@ -140,10 +111,7 @@ TEST(MergeThreads, TraceFileCoversTheWiderTeam) {
   TrainConfig cfg = config(MergeStrategy::IncrBatch, 2, 4);
   cfg.trace_path = path;
   train_text(random_text(13, 8000), cfg);
-  std::ifstream in(path, std::ios::binary);
-  std::stringstream ss;
-  ss << in.rdbuf();
-  const std::string json = ss.str();
+  const std::string json = test::read_file(path);
   EXPECT_NE(json.find("\"dropped\": 0"), std::string::npos);
   EXPECT_EQ(occurrences(json, "\"name\": \"thread_name\""), 4u);
   std::remove(path.c_str());

@@ -5,7 +5,6 @@
 
 #include <algorithm>
 #include <cstdio>
-#include <fstream>
 #include <random>
 #include <set>
 #include <sstream>
@@ -16,11 +15,14 @@
 #include "parabpe/merge_engine.hpp"
 #include "parabpe/trainer.hpp"
 #include "trace.hpp"
+#include "trace_test_util.hpp"
 #include "trace_words.hpp"
 
 using namespace parabpe;
 using detail::TraceKind;
 using detail::Tracer;
+using test::read_file;
+using test::traced;
 
 namespace {
 
@@ -49,13 +51,6 @@ TrainConfig config(int threads, int merge_threads) {
   return cfg;
 }
 
-std::string read_file(const std::string& path) {
-  std::ifstream in(path, std::ios::binary);
-  std::stringstream ss;
-  ss << in.rdbuf();
-  return ss.str();
-}
-
 std::string unhex(const std::string& hex) {
   std::string out;
   for (size_t i = 0; i + 1 < hex.size(); i += 2) {
@@ -70,9 +65,7 @@ TEST(TraceWords, PretokUnitsNameTheirWorkUnit) {
   const std::string text = word_text(1, 6000);
   TrainConfig cfg = config(4, 0);
   Tracer tracer(4);
-  detail::g_tracer = &tracer;
-  train_text(text, cfg);
-  detail::g_tracer = nullptr;
+  traced(text, cfg, tracer);
   std::vector<uint64_t> units;
   for (int t = 0; t < tracer.threads(); ++t) {
     for (const detail::TraceEvent& e : tracer.events(t)) {

@@ -5,7 +5,6 @@
 
 #include <omp.h>
 
-#include <algorithm>
 #include <ankerl/unordered_dense.h>
 #include <bit>
 #include <cstdint>

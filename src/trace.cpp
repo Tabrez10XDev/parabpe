@@ -5,9 +5,7 @@
 #include <stdexcept>
 #include <string>
 
-#if defined(__APPLE__)
-#include <sys/sysctl.h>
-#endif
+#include "sysctl.hpp"
 
 namespace parabpe::detail {
 namespace {
@@ -33,18 +31,11 @@ struct CoreMap {
 CoreMap core_map() {
   CoreMap map;
 #if defined(__APPLE__)
-  int levels = 0;
-  size_t size = sizeof(levels);
-  if (sysctlbyname("hw.nperflevels", &levels, &size, nullptr, 0) != 0 || levels != 2) return map;
-  char name[64] = {};
-  size = sizeof(name) - 1;
-  if (sysctlbyname("hw.perflevel1.name", name, &size, nullptr, 0) != 0) return map;
-  int e = 0;
-  size = sizeof(e);
-  if (std::string(name) != "Efficiency" ||
-      sysctlbyname("hw.perflevel1.logicalcpu", &e, &size, nullptr, 0) != 0) {
+  if (sysctl_int("hw.nperflevels") != 2 || sysctl_string("hw.perflevel1.name") != "Efficiency") {
     return map;
   }
+  const int e = sysctl_int("hw.perflevel1.logicalcpu");
+  if (e < 0) return map;
   map.e_cores = e;
   map.rule = "cpu < " + std::to_string(e) +
              " is an E-core (hw.perflevel1.logicalcpu; Apple numbers E-cores first)";
@@ -57,10 +48,6 @@ CoreMap core_map() {
 const char* trace_name(TraceKind kind) {
   return kNames[static_cast<int>(kind)];
 }
-const char* trace_arg_name(TraceKind kind) {
-  return kArgNames[static_cast<int>(kind)];
-}
-
 const char* trace_arg2_name(TraceKind kind) {
   return kArg2Names[static_cast<int>(kind)];
 }
