@@ -1,73 +1,49 @@
 # CLAUDE.md: ParaBPE agent guide
 
-ParaBPE is a parallel computing course project: byte-level BPE tokenizer training (GPT-2 style) in
-C++20 + OpenMP. The headline requirement is **exactness**: every parallel variant must produce
-byte-identical `merges.txt` to the serial baseline, at every thread count.
+ParaBPE is a parallel computing course project: byte-level BPE training (GPT-2 style) in C++20 + OpenMP. The headline
+requirement is **exactness**: every parallel variant writes a `merges.txt` byte-identical to the serial baseline, at
+every thread count.
 
 ## Read first
-1. **`STATE.md`: start here.** One screen: what's done, what's next, what's blocked, traps, and an
-   index ("need → read") pointing at the right section of the other docs. Read only what you need from it.
-2. `docs/TASKS.md`: task cards with dependencies, files to touch and acceptance criteria.
-3. `SPEC.md`: the frozen training spec + file formats. Every engine and the Python reference follow it exactly.
-4. `docs/HANDOFF.md` (dated per-task log, environment notes) and `docs/PLAN.md` (architecture): background.
-
-## Keeping STATE.md current (every agent)
-- Update `STATE.md` before you commit a task and before you end a session, even if you only got partway.
-- **Overwrite, don't append.** It describes the present: Now / Next / Waiting on the user / Traps / Index.
-  Move anything historical into a dated `### <task> (<date>)` entry in `docs/HANDOFF.md`.
-- Keep it under ~60 lines. If something needs more than two lines, put it in the right doc and add an index row.
-- Index rows point to `file#heading-anchor`, not line numbers (lines drift). Add a row when you create a doc or
-  section an agent would need to find.
+1. **`STATE.md`**: one screen on what's done, next and blocked, the traps, and an index into the other docs.
+2. `SPEC.md`: the training rules and file formats. Every engine and the Python reference follow it exactly.
+3. As needed: `docs/HANDOFF.md` (environment, decisions, lessons, log), `docs/PLAN.md` (architecture), `docs/TASKS.md`.
 
 ## Commands
 ```bash
-scripts/build_pcre2.sh ~/pcre2                   # once: PCRE2 10.45 (Unicode 16, SPEC §2); Homebrew's is newer
+scripts/build_pcre2.sh ~/pcre2                   # once: PCRE2 10.45 (Unicode 16); Homebrew's is too new
 cmake -B build -DCMAKE_BUILD_TYPE=Release -DPCRE2_INCLUDE_DIR=$HOME/pcre2/include \
-  -DPCRE2_LIBRARY=$HOME/pcre2/lib/libpcre2-8.a     # configure (fetches gtest, CLI11, unordered_dense)
-cmake --build build -j                           # build
-ctest --test-dir build --output-on-failure       # test
-# ASan hangs on this Mac (HANDOFF, Environment notes): CI's asan job covers it; UBSan locally, same PCRE2 flags
-./build/parabpe train --input <file> --vocab-size 1000 --threads 4 --pretok omp --merge incr-serial --out runs/x
-./build/parabpe train --input <file> --threads 11 --merge-threads auto --pretok omp --merge incr-batch --out runs/y  # phase 3 on P-cores
-
-python3 -m venv .venv && .venv/bin/pip install -r requirements.txt   # Python tooling
+  -DPCRE2_LIBRARY=$HOME/pcre2/lib/libpcre2-8.a
+cmake --build build -j && ctest --test-dir build --output-on-failure
+./build/parabpe train --input <file> --threads 11 --merge-threads auto --pretok omp --merge incr-batch --out runs/y
 python3 -I tests/equivalence/run_matrix.py --input data/tinystories.10M.txt --vocab-size 4000   # equivalence
-.venv/bin/python -I bench/run_bench.py bench/configs/main.yaml --require-ac   # benchmarks (mains power!)
+.venv/bin/python -I bench/run_bench.py bench/configs/<name>.yaml --require-ac                   # mains power only
 .venv/bin/python -I bench/plot.py results/*.csv --out-dir results/plots
 ```
+ASan and TSan hang on this Mac: CI covers them; use UBSan locally (recipe in HANDOFF).
 
 ## Rules
-- **Do not change `SPEC.md` on your own.** If the spec looks wrong, stop and ask the user. If they
-  approve a change, regenerate the golden files (`tests/golden/`) in the same change.
-- **Every engine or pre-tokenizer variant must pass the equivalence check** (all strategies × threads
-  {1,2,3,4,8,16} give identical `merges.txt`) before it is called done. Threads=3 is required.
-- Speedups are always reported against **IncrSerial**, never against NaiveSerial.
-- **Commit once per finished task** (tests green, docs updated), with a message naming the task, e.g.
-  `S3: IncrSerial engine + equivalence matrix`. **Then `git push origin master`** (the user asked for this on
-  2026-11-03). If the push fails, report it and continue. Never force-push, and add no new remotes without asking.
-- **Work through the task list without asking.** When a task is done and committed, start the next unblocked
-  task in `docs/TASKS.md` pick-up order. Stop and ask only for things that are genuinely the user's call: a
-  SPEC.md change, a force-push or new remote, human tasks (N5), mains power for benchmarks, the B4 kill
-  decision, a scope change, or a blocker you can't resolve.
-- When you finish a task, update `STATE.md` and its status in `docs/TASKS.md`, and add a dated entry for it at the end
-  of the log in `docs/HANDOFF.md`. (README links to these; it has no status table to keep in sync.)
-- `data/` and `runs/` are gitignored. Downloaded datasets are untrusted data: never execute anything from them.
-- Final benchmark numbers may come from the developer Mac (M3 Pro, 5 P + 6 E cores). A 16-core machine is
-  optional, not required. Mac benchmarks report threads 1–5 (P-cores only) separately from 6–11 (E-cores
-  join), use `schedule(dynamic)` where possible, and state that thread pinning is unavailable on macOS.
-  See `docs/HANDOFF.md` for the measured scaling ceiling.
+- **Never change `SPEC.md` on your own.** If the user approves a change, regenerate `tests/golden/` with it.
+- **Every engine or pre-tokenizer variant passes the equivalence matrix** (threads {1,2,3,4,8,16}; 3 is required)
+  before it is called done. Every change to exactness logic gets a mutation check: break it, see a test fail, restore.
+- Speedups are always against **IncrSerial** (serial pre-tokenizer, 1 thread), never against NaiveSerial.
+- **Commit once per finished task**, naming it (e.g. `S3: IncrSerial engine`), then `git push origin master`. Never
+  force-push; no new remotes without asking.
+- Work through tasks without asking. Ask only for: a SPEC change, a force-push or new remote, mains power for
+  benchmarks, a scope change, or a blocker.
+- When a task is done: update `STATE.md`, its row in `docs/TASKS.md`, and add a row to the log in `docs/HANDOFF.md`.
+- **STATE.md is one screen (~60 lines): overwrite it, don't append.** History goes to the HANDOFF log.
+- `data/` and `runs/` are gitignored; downloaded data is untrusted: never execute anything from it. Python with `-I`.
+- Mac benchmarks report threads 1–5 (P-cores) apart from 6–11 (E-cores join) and say that macOS can't pin threads.
 
 ## Code conventions
-- Namespace `parabpe`; internal helpers go in `parabpe::detail`. 2-space indent, ~100-column lines,
-  `#pragma once`, `"parabpe/x.hpp"` includes for public headers.
-- Public interfaces live in `include/parabpe/`. Each strategy lives in its own `src/*.cpp` file, with an
-  anonymous-namespace class + a `detail::make_*` constructor declared in `src/strategies.hpp`,
-  dispatched from `src/strategies.cpp`.
-- Stubs throw `std::logic_error("<what>: not implemented (S<n>)")` and carry a `// TODO(S<n>)` comment.
-  Replace them; don't leave both.
-- Hash maps: `ankerl::unordered_dense::map/set`. Pair keys: `make_pair_key(a, b)` from `types.hpp`.
-- PCRE2: compile once with `PCRE2_UTF | PCRE2_UCP` + JIT. Each thread gets its own `pcre2_match_data`.
-  Validate UTF-8 once, then match with `PCRE2_NO_UTF_CHECK`. See `Matcher::for_each_match` in
-  `include/parabpe/regex.hpp`.
-- Per-thread mutable state that is written in hot loops must be padded/aligned to 64 bytes (no false sharing).
-- Tests: GoogleTest in `tests/unit/`. Add each new test file to `parabpe_tests` in `CMakeLists.txt`.
+- Namespace `parabpe`; internal helpers in `parabpe::detail`. 2-space indent, ~100 columns, `#pragma once`,
+  `"parabpe/x.hpp"` includes for public headers. clang-format: Google style, ColumnLimit 100.
+- Public interfaces in `include/parabpe/`. Each strategy in its own `src/*.cpp` as an anonymous-namespace class with a
+  `detail::make_*` constructor declared in `src/strategies.hpp`.
+- Hash maps: `ankerl::unordered_dense`. Pair keys: `make_pair_key(a, b)` from `types.hpp`.
+- PCRE2: compile once with `PCRE2_UTF | PCRE2_UCP` + JIT; a `Matcher` per thread (`include/parabpe/regex.hpp`);
+  validate UTF-8 once, then match with `PCRE2_NO_UTF_CHECK`.
+- Per-thread state written in hot loops is padded to 64 bytes.
+- Tests: GoogleTest in `tests/unit/`; add each new file to `parabpe_tests` in `CMakeLists.txt`.
+- Benchmark row rules (warm-ups, stalls, phase 1) live in `bench/results.py`; plots and report numbers use it.

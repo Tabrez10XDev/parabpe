@@ -1,605 +1,98 @@
-# Handoff: read this first
+# Handoff
 
-## Log (oldest first)
-Where the project stands **now** is in [STATE.md](../STATE.md). This is the dated log: each entry describes the
-state on its date. Early entries say CI never ran, for example; the remote and CI arrived on 2026-11-03.
+Where the project stands **now**: [STATE.md](../STATE.md). This file holds what doesn't change often: the machine,
+the decisions, the lessons, and a one-line log per task. The full per-task notes are in git history
+(`git show 6b378a8:docs/HANDOFF.md`).
 
-**N4 + Unicode pin (2026-10-31).** The plan for N4 → N3 → S1 was checked by an independent reviewer; its changes are
-folded into the S1/S2 cards in `docs/TASKS.md`.
-- **SPEC.md §2 now pins Unicode 16.0** (the user approved this). Python `regex==2025.9.18` is the last Unicode-16
-  release (2025.11.3+ is Unicode 17), and PCRE2 must be 10.45. `CMakeLists.txt` stops on PCRE2 < 10.45, and the
-  gtest `PCRE2.UnicodeVersionIsPinned` checks `16.0.0` at runtime. CI now builds PCRE2 10.45 from source with
-  `scripts/build_pcre2.sh` (cached), because Ubuntu's 10.42 is older. That script was run locally and the tests pass
-  against it; the CI run itself is unverified (nothing pushed).
-  **Watch out:** a `brew upgrade pcre2` to a Unicode-17 release will fail that test. Pin or downgrade if it happens.
-- `reference/bpe_ref.py`, `make_golden.py`, `test_bpe_ref.py` and `README.md` are written. There are **11 golden cases**: the 7 from
-  the card plus `multi_special`, `early_stop`, `whitespace_zoo` and `unicode16`. There is also `tests/golden/unicode_classes.txt`
-  for the S1 parity test. Each case has a line-based `case.txt` (vocab size + specials).
-- `.venv/bin/python -m unittest discover reference`: **17/17 pass**. They include an HF `tokenizers` **token-id**
-  comparison against `bpe_ref.encode` on held-out text. A mutation check confirmed it fails when merges are dropped or
-  reordered. `make_golden.py --check` reports no drift.
-- The exact byte format of `vocab.json` (which S2 must match) is in `reference/README.md`.
+## Environment (developer Mac)
+- Apple M3 Pro, 5 performance + 6 efficiency cores, 18 GB, macOS 27. Compiler: Apple clang 17 (`/usr/bin/c++`); the
+  `clang` on PATH is the swiftly toolchain, which CMake doesn't use. `cmake` from MacPorts, `libomp` from Homebrew
+  (`CMakeLists.txt` asks `brew --prefix libomp`; keep that block).
+- **PCRE2 must be 10.45** (SPEC pins Unicode 16). Homebrew's is 10.49 (Unicode 17) and fails
+  `PCRE2.UnicodeVersionIsPinned`. Build it once with `scripts/build_pcre2.sh ~/pcre2` (as CI does) and configure with
+  `-DPCRE2_INCLUDE_DIR=$HOME/pcre2/include -DPCRE2_LIBRARY=$HOME/pcre2/lib/libpcre2-8.a`. CMake warns on a newer PCRE2.
+- **Sanitizers:** ASan and TSan runtimes hang or fail at startup on this macOS; both run in CI (Ubuntu). Locally use
+  UBSan: `-DCMAKE_BUILD_TYPE=Debug -DPARABPE_NATIVE=OFF` + the PCRE2 flags +
+  `-DCMAKE_CXX_FLAGS="-fsanitize=undefined -fno-sanitize-recover=undefined" -DCMAKE_EXE_LINKER_FLAGS=-fsanitize=undefined`.
+  The Debug build also turns on libc++/libstdc++ bounds checks.
+- **Python:** always `.venv/bin/python -I` (the system Python lacks `regex`; other `regex` versions break the pin).
+- **TeX:** `tectonic` (Homebrew): `cd report && tectonic report.tex`.
+- First configure downloads GoogleTest, CLI11 and unordered_dense (FetchContent): needs network.
 
-Verified on this machine (2026-11-03):
-- `cmake -B build && cmake --build build -j && ctest --test-dir build`: **53/53 tests** (52 gtest + the `slow`
-  equivalence matrix, now 24/24 identical), zero compiler warnings. `ctest -LE slow` skips the matrix. The Debug build (`build-debug`) passes too.
-- `.venv/bin/python -m unittest discover reference`: 17/17. `make_golden.py --check`: no drift.
-- `./build/parabpe train --input data/tinystories.10M.txt --vocab-size 1000 --out runs/x` works end to end (IncrSerial).
+## Benchmark machine and hygiene
+- Final numbers come from this Mac (the user ruled a 16-core machine optional; N5 never arranged).
+- Compute-bound toy loop, `schedule(dynamic,1)`: 1.96× at 2 threads, 4.15× at 5, 6.30× at 11. Linear on the P-cores,
+  then each E-core adds ~0.4 of a P-core (ceiling ≈ 7.4 P-core equivalents).
+- No thread pinning on macOS (`omp_get_num_places()` is 0), no `perf` (use Instruments). Report threads 1–5 (P-cores)
+  apart from 6–11 (E-cores join).
+- **Benchmarks only on mains power** (`run_bench.py --require-ac`): on battery the Mac idle-sleeps mid-run even under
+  `caffeinate -i`, and throttles in dark wake. Stalled rows (wall > 2 × CPU + 0.05 s) are dropped and counted.
 
-Git: the user made the first commit (`Initial setup`, 2026-11-03). From S3 on, **one commit per finished task**,
-made when the task is done (the user asked for this). There is no remote, so CI has still never run.
+## Decisions (don't re-litigate)
+- C++20 + OpenMP; PCRE2 (RE2 lacks lookahead); `ankerl::unordered_dense`.
+- **IncrSerial is the speedup baseline** (serial pre-tokenizer, 1 thread). Naive engines only on small configs.
+- Chunking only at special-token boundaries (SPEC §2); tie-break on `(bytes(a), bytes(b))` (SPEC §4).
+- TSan needs clang + LLVM libomp (libgomp gives false races); Archer's `ignore_noninstrumented_modules=1` in CI.
+- Defaults from the B4 sweep: `owners_per_thread` 1, `par_threshold_tokens` 4096, `batch_scan_cap` 4096,
+  `batch_skip_small` on (small rounds merge one pair; `--batch-full-rounds` for span figures).
+- Every figure and report number uses one CSV with its own baseline (`bench/results.py`, `plot.py pick_sources`).
 
-**N3 data (2026-11-01).** `scripts/get_data.sh [tinystories|wikitext|enwik9|all]` + `scripts/slice_data.py`.
-- In `data/` (gitignored): `tinystories.{10M,100M,1G}.txt` (no `.full`; the 2.2 GB raw file is in `data/raw/`) and
-  `wikitext.{10M,100M,full}.txt` (full = 540 MB). `data/CHECKSUMS.sha256` verifies with `cd data && shasum -a 256 -c CHECKSUMS.sha256`.
-- Verified: a rerun gives identical checksums, every output decodes as strict UTF-8, and the document splitters were
-  tested at every chunk boundary.
-- WikiText: the TASKS title rule `^ = [^=].* = $` gives 29,444 documents (the official article count is ~28,475; a few
-  in-article lines match too). That is deterministic and fine for exactness. The 10 MB slice has 850 distinct non-ASCII characters.
-- enwik9 is implemented but **not downloaded or run** (1.3 GB of disk). Disk is now ~24 GB free.
-- `bpe_ref.py --words-only` takes under 1 s per 10 MB slice; outputs are in `runs/ref/{tinystories,wikitext}.10M/words.tsv`.
+## Lessons worth knowing
+- **Bucket by the low hash bits.** `ankerl` indexes its slots by the high bits; bucketing per-thread maps by the high
+  bits made 3 threads 51× slower than serial (S4).
+- **Push a new token's bytes before any heap push:** the heap comparator reads them. The out-of-bounds read broke 9/11
+  golden cases and UBSan missed it; the bounds-checked Debug build traps it (S3).
+- **PCRE2's `\s` matched U+180E**, Unicode 16 doesn't: `\s`/`\S` compile as `\p{White_Space}` (S1).
+- **The batch formula needs a 0-based j**; a 1-based j keeps one member too many (`eax`×2, `df`×2). Wrong rules pass on
+  wikitext.full, so exactness needs the small random corpora too (B0).
+- **IncrPar forks only for big steps** (no persistent region): ~31k merges mostly touch a few words (S6).
+- **Hashed owners fix the imbalance (2.30 → 1.08) but barely speed up IncrPar**: batching is what pays (B5).
+- **11 threads merge slower than 5:** each round waits for an E-core. `--merge-threads auto` keeps phase 3 on the
+  P-cores (B8).
+- **TinyStories' 0.94× is a baseline effect** (the baseline row used the serial pre-tokenizer), not parallel overhead.
+- **Core samples are weak for long events:** threads migrate within a 17 ms phase-1 unit (units that started on an
+  E-core took as long as P-core ones). Phase-3 events are microseconds, so their P/E samples hold (B10).
+- `HTTPServer.server_bind` does a reverse DNS lookup that stalled 35 s here; `studio/serve.py` skips it.
 
-**S1 (2026-11-02).** `include/parabpe/regex.hpp` + `src/regex.cpp` (`Regex`, `Matcher::match_at` / `for_each_match`, which
-throw on PCRE2 errors, gaps and empty matches, with a 16 MB JIT stack); `validate_utf8` + `make_work_units` in `corpus.cpp`;
-`SerialPreTokenizer`; `write_words`; CLI `--special` (repeatable), `--no-special`, `--dump-words` (stops after phase 1).
-- Tests: `test_chunker.cpp`, `test_pretok.cpp` (includes the golden `words.tsv` check for all 11 cases),
-  `test_unicode_parity.cpp` (all code points × `\s`, `\p{L}`, `\p{N}` against `tests/golden/unicode_classes.txt`), and the
-  shared `tests/unit/golden_case.hpp` (reads `case.txt`; reuse it in S2). **34/34 pass** (Release), zero warnings.
-- **Unicode finding:** PCRE2's `\s` matched U+180E (Mongolian vowel separator); Unicode 16 and Python don't. Fixed in C++
-  by compiling `\s`/`\S` as `\p{White_Space}`/`\P{White_Space}` (no SPEC change). U+180E is now in `whitespace_zoo`.
-- Acceptance: `parabpe train --dump-words` gives byte-identical `words.tsv` to the golden files for all 11 cases (each with
-  its own `--special` flags) and to `bpe_ref.py --words-only` on `tinystories.10M` and `wikitext.10M`.
-- Serial phase 1 speed: ~105 MB/s (1 GB TinyStories: pretok 9.6 s, chunk + UTF-8 check ~1.5 s, 45k unique words).
-- **Sanitizers:** ASan **cannot run on this Mac** (see Environment notes). UBSan-only build: 34/34 pass, and CLI runs are clean.
-  The ASan check for S1 comes from the CI `asan` job (not yet run, because nothing is pushed).
-
-**S2 (2026-11-02).** `trainer.{hpp,cpp}` (`count_words` / `train_text` / `train`), `word_table.cpp`, NaiveSerial in
-`merge_naive.cpp`, `io.cpp` (GPT-2 `bytes_to_unicode`, `build_vocab`, byte-exact `format_merges` / `format_vocab`,
-`format_timings` with sysctl or /proc/cpuinfo hardware info + git SHA), and `src/bpe_common.hpp`, the shared SPEC §3/§4
-rules that **every engine must use**. `MergeEngine::run` now takes `PhaseTimings&` (fills `pairs` and `merge`).
-- Tests: `test_golden.cpp` (merges.txt + vocab.json byte-exact for all 11 cases; loops over `kEngines`) and
-  `test_io.cpp`. **46/46 pass** (Release and UBSan), zero warnings. A mutation check (flipping the tie-break)
-  makes 10/11 golden cases fail, so the test has teeth.
-- **Real data:** C++ NaiveSerial and `bpe_ref.py` give **identical merges.txt + vocab.json** on `tinystories.10M` and
-  `wikitext.10M` at vocab 1000 (743 merges each). Python takes 10 s / 74 s; C++ takes 0.27 s on the merge phase for TinyStories.
-- `tests/interop/check_hf.py --model DIR --heldout FILE`: HF `tokenizers` ids == `bpe_ref.encode` ids. It passes on
-  `runs/s2/ts10M_v1000` against 1 MB of WikiText (494k tokens).
-- `timings.json` on this Mac reports `performance_cores: 5, efficiency_cores: 6`; `git_sha` is `"unknown"` until the first commit.
-- Code in the new and rewritten files is formatted with Xcode's clang-format
-  (`{BasedOnStyle: Google, ColumnLimit: 100, AllowShortCaseLabelsOnASingleLine: true, Standard: c++20, SortIncludes: Never, AllowShortFunctionsOnASingleLine: Inline}`).
-
-**S3 (2026-11-03).** IncrSerial in `src/merge_incr.cpp`: pair counts + inverted index (pair → word ids, consecutive
-duplicates dropped) + a lazy max-heap ordered by `better_pair`, whole-word diff per affected word, `last_touched` stamps,
-heap rebuild above 4× live pairs. Because a merge creates a fresh id `z`, the pairs new to a word are exactly the ones
-containing `z`, so only those are appended to the index.
-- **Bug found and fixed while building it:** pairs containing `z` were pushed onto the heap before `token_bytes[z]`
-  existed, so the comparator read past the end of the vector (wrong tie-breaks, 9/11 golden cases failed). UBSan does
-  not see this. The Debug build now turns on libc++/libstdc++ bounds checks (`_LIBCPP_HARDENING_MODE_EXTENSIVE`,
-  `_GLIBCXX_ASSERTIONS`); with the bug put back, the Debug tests stop with SIGTRAP (exit 133).
-- Tests: `kEngines` in `test_golden.cpp` now includes IncrSerial (byte-exact on all 11 cases); `test_io.cpp` runs the
-  early-stop and empty-corpus tests for both serial engines and compares IncrSerial with NaiveSerial on 200 random
-  small-alphabet corpora (many count ties, long runs).
-- `tests/equivalence/run_matrix.py --input F --vocab-size N [--threads ...] [--binary ...]`: every implemented
-  (pretok, merge) pair × threads {1,2,3,4,8,16} against the oracle (serial + NaiveSerial at 1 thread), comparing sha256 of
-  `merges.txt` and `vocab.json`. Strategies that throw "not implemented" are listed as SKIP. Exit 0 / 1 mismatch / 77 no input.
-  Registered in CTest as `equivalence_matrix` (label `slow`, tinystories.10M at vocab 4000): 12/12 identical, 6 pairs skipped.
-- **Real data:** IncrSerial == NaiveSerial (merges.txt + vocab.json) on `tinystories.10M` and `wikitext.10M` at vocab 1000
-  and 4000, and == `bpe_ref.py` at vocab 1000. Merge phase at vocab 4000: TinyStories 1.087 s → 0.0087 s (**125×**),
-  WikiText 12.74 s → 0.048 s (**266×**); the card asked for ≥10×. Outputs are in `runs/s3/`.
-
-**S4 (2026-11-03).** `src/pretok_omp.cpp`: one `parallel` region, a `Matcher` per thread, `omp for schedule(dynamic,1)`
-over work units into per-thread maps pre-bucketed by **low** hash bits (B = T rounded up to a power of 2); after the
-barrier, `omp for` over buckets merges bucket b of every thread into shard b (no locks); shards are concatenated and
-sorted. Per-thread and per-shard structs are `alignas(64)`. Exceptions inside the region are captured and rethrown.
-- New config `TrainConfig::pretok_reduce` (`--pretok-reduce bucketed|critical`): `critical` merges one map per thread
-  into a global map in a critical section, the report's comparison. `timings.json` `config` gained `"pretok_reduce"`
-  (additive, like `performance_cores`; SPEC §6 example not changed).
-- **Perf bug found:** bucketing by the HIGH hash bits (as the card said) made 2 threads 6.6× and 3 threads 51× slower than
-  serial, because `ankerl` also indexes by the high bits. Fixed by using the low bits; card and PLAN updated.
-- Tests: golden `words.tsv` for OMP × threads {1,2,3,4,8,16} × {bucketed, critical} with 16-byte work units; OMP vs
-  serial on a 20k-piece many-document text; error propagation from a worker thread. Debug (bounds-checked) build passes.
-- Acceptance: `words.tsv` identical to serial on both 10 MB slices (threads {1,2,3,4,8}, both variants), on
-  `tinystories.1G` (threads {1,2,3,4,5,6,8,11}, both variants) and on `wikitext.full` (threads {2,5,11}).
-- **Phase-1 scaling, tinystories.1G** (serial 9.58 s; one run each, not yet the bench methodology):
-  | threads | 1 | 2 | 3 | 4 | 5 | 6 | 8 | 11 |
-  |---|---|---|---|---|---|---|---|---|
-  | bucketed (s) | 9.42 | 4.70 | 3.23 | 2.42 | 2.19 | 1.94 | 1.67 | 1.37 |
-  | speedup vs serial | 1.02 | 2.04 | 2.97 | 3.96 | 4.37 | 4.94 | 5.75 | 7.01 |
-
-  Bucketed and critical are within noise here (only 45k unique words). On `wikitext.full` (540 MB, 599k unique words):
-  serial 5.42 s; 11 threads bucketed 1.05 s vs critical 1.34 s; 5 threads 1.47 s vs 1.52 s.
-- Full pipeline, tinystories.1G, 11 threads, `--pretok omp`, vocab 1000: total 2.19 s, of which **chunk 0.75 s** (serial
-  mmap + UTF-8 check + special-token split) and pretok 1.42 s. Chunking is now the Amdahl bottleneck: a G1 item.
-- **TSan:** CI job `tsan` (clang + libomp-dev, Archer via `OMP_TOOL_LIBRARIES`, `ctest -LE slow`, `OMP_NUM_THREADS=4`)
-  is written but **has never run** (no remote). Locally, Apple clang's TSan fails at startup ("Interceptors are not
-  working", also with `DYLD_INSERT_LIBRARIES`), same toolchain problem as ASan.
-
-**N8 (2026-11-03).** `scripts/profile_phases.py` (run with `.venv/bin/python -I`; `--small`, `--large`, `--threads`,
-`--out`) times the `bpe_ref.py` phases and compares HF `tokenizers` training at Rayon 1/N with our C++.
-Results and takeaways are in **`docs/notes/profiling.md`** (raw output in `runs/n8/`). In short:
-- In C++, phase 1 is 76–95% of serial time.
-- The merge loop is 34% of 11-thread wall time on `wikitext.full`, but 3% on TinyStories.
-- A cold page cache makes `chunk` 10× slower on 1 GB.
-- We beat HF by about 11× (1 thread) and 8× (11 threads) on `wikitext.100M`. This is ballpark only: HF doesn't split
-  on specials.
-- The spike ran on battery. S8 must run on mains power.
-
-**N7 (2026-11-03).** The bench harness:
-- `bench/run_bench.py <config.yaml>` (run with `.venv/bin/python -I`; options `--reps`, `--results-dir`, `--require-ac`,
-  `--dry-run`) appends one CSV row per run to `results/<config>.csv`.
-- Each configuration gets a warm-up run (`warmup=1`).
-- The runner sets `OMP_PROC_BIND=close OMP_PLACES=cores` and uses `numactl` on multi-socket Linux.
-- Configurations that only use serial strategies run at 1 thread only. "Not implemented" strategies are skipped.
-- Every row records the `merges.txt` sha256, and the runner flags any mismatch within an (input, vocab) pair. The
-  benchmark therefore doubles as an equivalence check.
-- Every row also records the power source and the child's CPU time (`cpu_s`).
-- Phase columns are `<phase>_s`, because `pretok` and `merge` are also strategy columns.
-
-Configs in `bench/configs/`:
-- `smoke` (about 30 s)
-- `main` (the PLAN §6 grid, 100 configurations)
-- `naive` (10 MB, vocab 4k)
-- `reduce` (bucketed vs critical)
-- `threshold` (IncrPar sweep)
-- `weak` (50 MB per thread, zipped; make the slices first, the command is in the file)
-
-`bench/plot.py results/*.csv --out-dir results/plots` writes:
-- `speedup_<input>_v<vocab>.png`: per-phase speedup vs IncrSerial, with a median line, a min/max band, an ideal
-  line and a shaded E-core region.
-- `phases_*.png`: stacked bars of median phase times.
-- `amdahl.png`: serial fraction fitted on threads 1–5.
-- `weak_scaling.png` and `threshold.png`.
-- `summary.md`: the table view.
-
-Warm-up runs are excluded. Runs with wall time > 2 × CPU time are dropped as stalls and counted.
-The plots use the dataviz reference palette in fixed slot order (validated: CVD ΔE ≥ 9.1 adjacent).
-Checked with `smoke` (real runs) and a synthetic CSV for the weak and threshold plots.
-- **Finding:** on battery with the user away, the Mac sleeps mid-run even with `caffeinate -i` (`-s` only works on
-  AC). One 0.1 s run read 295 s, and two naive runs read 162 s and 553 s for 13 s of CPU (`pmset -g log` confirms
-  Sleep/DarkWake). Runs during dark wake are also throttled: serial pretok on 10 MB took 0.22 s instead of 0.09 s.
-  **S8 needs the Mac on mains power and awake.** Use `--require-ac`.
-
-**S7 (2026-11-03).** NaivePar in `src/merge_naive.cpp`: each merge recounts all pairs in parallel. Words are counted
-under `omp for schedule(dynamic,1024)` into per-thread maps, pre-bucketed by the low hash bits. Bucket b of every
-thread is reduced into shard b, which also finds its own best pair. The master then takes the best of the shard
-winners: `better_pair` is a total order on distinct pairs, so the result does not depend on the partition. The merge
-is applied with `parallel for` over words (each word is a disjoint range of `tokens`).
-- Tests: the golden test now runs parallel engines at threads {1,2,3,4,8,16}. The random-corpus test checks NaivePar
-  at 1/3/4/16 threads against NaiveSerial. The early-stop and empty-corpus tests cover every engine.
-  54/54 pass (Release and Debug with bounds checks).
-- Equivalence matrix: 0 mismatches on `tinystories.10M` (vocab 4000) and `wikitext.10M` (vocab 2000, 36/36).
-- Not timed yet: this session ran on battery with the Mac sleeping and throttling. NaivePar timings come from the
-  `naive` bench config in S8.
-
-**S5 (2026-11-03).** `src/merge_incr.cpp` is one `IncrEngine` for both strategies:
-- Words are split into **owners**, contiguous ranges balanced by token count: 1 owner for IncrSerial, `cfg.threads`
-  for IncrPar. Each owner has a private inverted index.
-- Global counts live in `ShardedCounts`: power-of-two shards chosen by the low hash bits. With one shard (serial),
-  no hash is computed.
-- Parallel phase 2: `omp for schedule(dynamic,1)` over owners builds each private index and counts into per-thread
-  maps pre-bucketed by shard. Shard s then sums bucket s of every thread, with no locks.
-- Phase 3 (shared, still serial; `TODO(S6)`) walks every owner's list for the chosen pair. New pairs go to the
-  owner's index. A pair whose count reaches 0 is erased from every owner.
-- Tests: IncrPar is in the golden test at threads {1,2,3,4,8,16} and in the random-corpus test at 1/2/3/8/16 threads
-  (owners can be empty there). 56/56 pass (Release and Debug).
-- Equivalence matrix on `tinystories.10M` v4000: 0 mismatches, **no strategy skipped any more**.
-- `wikitext.full`, vocab 32000 (one run each, on battery):
-  - Phase 2 drops from 0.032 s (IncrSerial) to 0.015 s at 5 threads and 0.012 s at 11.
-  - Phase 3 under IncrPar is **13–19% slower** than IncrSerial (0.75–0.79 s vs 0.66 s): each merge looks up every
-    owner's index. S6 has to win this back.
-  - `merges.txt` is identical to IncrSerial at 5 and 11 threads.
-
-**G1 (2026-11-03).** The numbers and the decision are in `docs/notes/profiling.md`. The user chose a **modest S6**
-(as planned, reported honestly) plus a new task, **S10 (parallel chunker)**; its card is in TASKS.
-
-**S6 (2026-11-03).** IncrPar phase 3, in `src/merge_incr.cpp`:
-- The master pops the heap and runs the loop. A step whose **tokens touched** reach `cfg.par_threshold_tokens`
-  (checked by counting listed words first, then summing their lengths) opens a parallel region with three steps:
-  1. `omp for` over owners: `merge_owner` rewrites the owner's words and buffers deltas in a padded per-thread map,
-     bucketed by counts shard.
-  2. `omp for` over shards: sum the deltas over all threads **before** applying them, so a count never passes through
-     a transient 0. Then apply them and collect heap pushes and zeros.
-  3. `omp for` over owners: drop the zero pairs from each index.
-
-  The master then pushes to the heap. Smaller steps run on the master alone, through the same `merge_owner` code
-  path. Negative counts are flagged inside the region and thrown by the master.
-- **Deviation from the card:** I used no persistent region. With about 31k merges, most touching a few words, a
-  barrier on every merge would cost more than it saves; forking only for big steps costs nothing on small ones.
-  Mention this in the report.
-- Tests: the golden and random-corpus tests run IncrPar with threshold 0, so every step is parallel; the random test
-  also uses threshold 8, a mix of both paths. A mutation (dropping thread 0's deltas) fails both tests.
-  56/56 pass (Release and Debug).
-- Equivalence matrix: 0 mismatches on `tinystories.10M`, with every strategy implemented.
-- `wikitext.full`, vocab 32000, phase 3 (one run each, **on battery**, indicative only). `merges.txt` was identical
-  in every run.
-
-  | | 5 threads | 11 threads |
-  |---|---|---|
-  | IncrSerial | 0.675 s | 0.675 s |
-  | IncrPar, threshold 0 (every step parallel) | 2.28 s | 5.13 s |
-  | IncrPar, threshold 1024 | 0.62 s | 0.84 s |
-  | IncrPar, threshold 4096 (default) | **0.594 s (1.14×)** | 0.698 s |
-  | IncrPar, threshold 16384 | 0.63 s | 0.653 s (1.03×) |
-  | IncrPar, threshold 65536 | 0.68 s | 0.667 s |
-
-  This is a modest result, as G1 expected: S6 wins back S5's per-owner cost and gains about 1.1× at 5 threads.
-  At 11 threads, the E-cores and the extra owner lookups on every serial step cancel the gain. `threshold.yaml`
-  sweeps this properly in S8.
-
-**S10 (2026-11-03).** The parallel chunker, in `src/corpus.cpp`. `make_work_units(..., threads)` and
-`validate_utf8(text, threads)` take a thread count. `train()` passes `cfg.threads` with `--pretok omp` and 1 with
-`--pretok serial`, so the serial baseline keeps the old code. Texts under 1 MB stay serial.
-- **UTF-8 check:** T byte ranges, each moved forward past continuation bytes, with a `reduction(min)` over each
-  range's first error. In valid UTF-8 every non-continuation byte starts a sequence, so each range agrees with the
-  serial scan up to the first error: the reported offset is the same for every T.
-- **Special split:** each thread collects every occurrence (overlapping ones included) that **starts** in its range,
-  searching up to `end + longest − 1`, sorted by position with the longest first. One serial greedy pass skips
-  occurrences before `pos`, which is the same leftmost/longest rule as the serial scan. Packing into units is the
-  shared `UnitPacker`.
-- Tests (`test_chunker.cpp`): units identical to serial for threads {1,2,3,4,8,16} on a 3 MB random text, with
-  5 special-token sets (including self-overlapping `aa` and the prefix pair `<|end` / `<|endoftext|>`) and two unit
-  sizes; the same error offset for every T with invalid bytes at, before and after every range border. A mutation
-  (no boundary alignment) fails both tests. 58/58 pass (Release and Debug).
-- `words.tsv` identical to serial on `tinystories.1G` and `wikitext.full` (5 and 11 threads). Matrix: 0 mismatches.
-- Warm `chunk` on `tinystories.1G`: 0.150 s at 1 thread, 0.058 s at 5, 0.051 s at 11 (2.9×; memory-bandwidth bound).
-  The whole 1 GB run at 11 threads (vocab 1000) is **1.47 s**, down from 1.66 s. One run each, on battery.
-
-**B0 (2026-11-03).** The batched-merging upgrade is planned in `docs/notes/batched_merging.md`, which has the full
-proof. Task order from here: B1, B2, B3, B4, B5, N6, S8, B6, B7, S9 (cards in `docs/TASKS.md`).
-- **The formula needs a 0-based j.** With 1-based members, `j+1` keeps one member too many. Counterexample in the note:
-  words `eax`×2 and `df`×2.
-- `tools/batchsim/batchsim.cpp` (standalone, not in CMake): `c++ -std=c++20 -O2 tools/batchsim/batchsim.cpp -o build/batchsim`.
-  Its merges are byte-identical to IncrSerial on `wikitext.10M` v4000.
-- All six prototype round counts reproduce exactly under the relaxed rule. The closed form is better: **2,561 rounds**
-  on `wikitext.full` v32k (mean batch 12.39) against 3,409, and 21,295 against 32,533 at v100k.
-- **`batch_scan_cap=256` costs real batching at v100k:** 35,237 rounds against 21,295 uncapped; 1024 gives 21,646. B3
-  settles the default.
-- Not reproduced: hashed imbalance is 1.07–1.08 (prototype 1.02–1.06) and the batched big-step share is 90.0% (prototype
-  91.2%). The contiguous 2.30 and the 80.5% do reproduce.
-- **Wrong rules pass on `wikitext.full` v32k.** `all` and `one-based` only fail on smaller corpora, so a clean verify on
-  one big corpus proves little.
-
-**CI (2026-11-03).** The repo now has a remote (`origin`, public), so CI does run; the notes above saying otherwise
-predate it. First run: `gcc` and `asan` passed, `tsan` failed 9/58 on false positives inside `libomp.so`, stopping each
-test at the first report, so TSan had checked nothing. B0 adds `ignore_noninstrumented_modules=1`. Check
-`gh run list` after each push.
-
-**B1 (2026-11-03).** The shared incremental-engine pieces moved from `src/merge_incr.cpp` to `src/incr_common.hpp`, no
-logic changes. `parallel_step` is a free template taking `merge(table, owner, add)`. 58/58 in Release and Debug; matrix 0
-mismatches on both 10 MB slices. Old vs new binary, alternating, median of 7 on `wikitext.full` v32k (battery, indicative):
-IncrSerial 0.704 vs 0.691 s, IncrPar at 5 threads 0.588 vs 0.585 s; `merges.txt` identical.
-
-**B2 (2026-11-03).** `incr-batch` is wired through the CLI, `name_of` and the factory; `src/merge_batch.cpp` is a stub
-(`TODO(B3)`). New `TrainConfig` fields, `MergeStats` in `TrainResult`, `MergeEngine::stats()`, and a `"batch"` block in
-`timings.json` for incr-batch only (additive, like `pretok_reduce`; the SPEC §6 example is unchanged). `--trace` is
-accepted but does nothing until B6.
-
-**B3 (2026-11-05).** `src/merge_batch.cpp` (engine, lazy-heap `select_round`, `SequentialOracle` for `--verify-batches`)
-and `src/batch_select.hpp` (pure `choose_batch`, `keep_count`, `Batch`, `apply_batch`). The engine is still serial: one
-owner, threads ignored. `tests/unit/test_batch.cpp` is new; `incr-batch` is in the golden test, the `Engines` suite, the
-random-corpus list (oracle on) and `run_matrix.py`.
-- 77/77 in Release and Debug. Matrix 0 mismatches on both 10 MB slices with `incr-batch` included.
-- Engine vs batchsim, oracle on: **0 disagreements** on rounds, max batch and `merges.txt` over 8 configurations, including
-  `wikitext.full` v32k (**2,561 rounds**, target ≤ 3,409) and v100k (21,295).
-- All three rules are exact on 200 random corpora (`make_batch_engine(BatchRule)`; only Closed ships).
-- **Mutations, all caught:** always k=K; 1-based j; self-pair mid-batch; `<=` in g; stopping pair left out of T; incomplete
-  scan treated as complete; tie scan skipped; bytes pushed after the heap push (Debug trap, like the S3 bug).
-- **Deviations from the card:** `batch_scan_cap` defaults to **4096**, not 256, because of the round counts above. The tie
-  scan stops early once k reaches max(g,1), which cuts selection time and returns the same batch.
-- **Serial cost:** selection dominates on tie-heavy data. See the note's measurements. This is the main risk for B4's
-  kill check at v100k.
-- CI: B0, B1 and B2 runs are fully green, TSan included, so the existing parallel code has now been race-checked.
-
-**B4 (done 2026-11-07; code 2026-11-05).** Kill check passed on mains power; see the sweep below.
-- `partition_words_hashed` (`Owner::words`), rounds at or above `par_threshold_tokens` through the templated
-  `parallel_step`, and a periodic parallel sweep of zero pairs (every 16k pairs). IncrSerial and IncrPar keep their paths.
-- **Added beyond the card: `batch_skip_small`** (default on; `--batch-full-rounds` turns it off). Rounds that can't go
-  parallel merge one pair. It took v100k from 0.79× to 1.41×. Span figures must come from `--batch-full-rounds` runs, which
-  are the ones that match batchsim. Details and battery numbers are in `docs/notes/batched_merging.md`.
-- 81/81 in Release and Debug. CI green, TSan included: **the first race check of parallel rounds.** Matrix 0 mismatches on
-  both 10 MB slices.
-- `--verify-batches` passes at 5 and 11 threads at v32k and v100k, with and without skipping; `merges.txt` equals IncrSerial
-  in all eight runs.
-- Mutations: 16 of 17 caught. The survivor (no per-round stamp) is an equivalent mutant, explained in the note.
-- Two stale `build-asan/parabpe_tests --gtest_list_tests` processes (the ASan deadlock) ran alongside all the B4 battery
-  timings at about 45% of a core each. They had gone by 2026-11-06.
-- The Mac slept during a foreground test run even in the middle of a session. Wrap long runs in `caffeinate -i`.
-
-### B5 (2026-11-06, done out of order: B4's kill check is still pending)
-- `--owner-map contiguous|hashed` for IncrPar, default contiguous. `--owner-stats` adds the load measurement; it is off by
-  default because it reads each touched word again, which would skew IncrPar timings.
-- Real engine, `wikitext.full` v32k, 572 big steps: busiest/mean 2.30 → 1.08 (T=5), 4.02 → 1.18 (T=11). Same step count
-  and ratios as batchsim, which shares no code with it. `merges.txt` equals IncrSerial in all four runs.
-- **Result worth reporting: the imbalance fix alone barely helps.** Phase 3 vs IncrSerial, median of 5, battery, indicative:
-
-| | T=5 contiguous | T=5 hashed | T=11 contiguous | T=11 hashed |
-|---|---:|---:|---:|---:|
-| v32k | 1.15× | 1.23× | 0.97× | 0.99× |
-| v100k | 1.11× | 1.14× | 0.94× | 0.95× |
-
-- Off-path cost: IncrSerial 0.602 s vs 0.597 s before B5, IncrPar 0.503 s vs 0.520 s, within noise.
-- 83/83 in Release and Debug. Matrix 0 mismatches on both slices, with `incr-par:hashed` as a new column.
-- Mutations: 4 of 4 caught, after one survivor showed the test never ran a small step; the test now does.
-- The two stale ASan processes have gone (not killed by us). IncrSerial v32k now takes about 0.59 s on battery, against
-  0.689 s when they were running, so B4's battery figures carried that load and the kill check must not reuse them.
-
-### N6 (2026-11-06)
-`docs/notes/related_work.md`. **BatchBPE already merges many pairs per batch**, and HF and YouTokenToMe already
-parallelise the merge step, so the report may not say "first batched" or "first parallel". What we did not find: several
-merges per parallel round with a proof that the merge list, order included, is byte-identical to sequential training.
-BatchBPE's README says its merge order differs. Use the wording in the note. S9 follow-ups are on the card.
-
-### S8 tooling (2026-11-07, no benchmark results yet)
-- `run_bench.py`: incr-batch, `owner_map`, `owners_per_thread`, `full_rounds`, `owner_stats`, `baseline`, round and load
-  columns. Power is read before every run. Stalled runs are repeated. The CSV header changed; no old results existed.
-- `plot.py`: every row has a `kind`, and only `main` rows reach headline charts, replacing a hardcoded threshold of 4096
-  that would have hidden incr-batch. New charts: span, batch sizes, owner maps. End labels no longer collide.
-- `bench/kill_check.py` prints the sweep and verdict, and exits 2 rather than give a verdict on battery data.
-- `scripts/run_s8.sh` runs everything after the sweep. Estimate about 2¼ hours, plan for 3.
-- Tested end to end on the 10 MB slices only. Those numbers were throwaway and are not in the repo.
-- **The Mac idle-slept on battery during timing runs even under `caffeinate -i`** (`Maintenance Sleep` / `Idle Sleep` in
-  `pmset -g log`): 6 s runs took up to 15 minutes of wall time. Not yet seen on mains, where `run_bench.py` adds `-s`.
-  Check the "stalled runs" count at the end of each config.
-- Palette: 8 slots pass. incr-par vs incr-batch is ΔE 6.9 (deutan), legal with their different marker shapes.
-
-### B4 kill check (2026-11-07, mains power)
-`bench/configs/b4_sweep.yaml` on `wikitext.full`: 156 rows, 0 stalled, 0 failed. `bench/kill_check.py`: **PASS**.
-Phase 3 speedup vs IncrSerial, `owners_per_thread=1`, median of 3:
-
-| Threads, vocab | 1024 | **4096** | 16384 | 65536 |
-|---|---:|---:|---:|---:|
-| 5, v32k | 1.92× | **1.83×** | 1.54× | 1.32× |
-| 5, v100k | 1.37× | **1.39×** | 1.27× | 1.15× |
-| 11, v32k | 1.44× | **1.47×** | 1.33× | 1.17× |
-| 11, v100k | 1.08× | **1.20×** | 1.14× | 1.06× |
-
-- **Defaults set:** `owners_per_thread` 4 → **1** (it beat 2 and 4 in every cell). The threshold stays **4096**, shared
-  with IncrPar: 1024 wins only at 5 threads v32k. The user approved both.
-- `--verify-batches` passes with the new default at 5 and 11 threads, v32k and v100k; `merges.txt` equals IncrSerial in all four.
-- **11 threads is slower than 5 in every cell**: the E-cores hold each round back. Report P-core and E-core regions apart.
-- Noise: the largest min-max spread is 22% (incr-batch) and 12% (IncrSerial, v32k t5); others 0–2% for IncrSerial.
-- **Baseline guard:** IncrSerial phase 3 is 0.61–0.64 s at v32k, below the plan's 0.66–0.68 s. The old figure was taken
-  while the two stale ASan processes ran, so this is the cleaner baseline, not a regression. S8 re-measures it anyway.
-
-### S8 (2026-11-07, mains power)
-All configs ran: 2,232 rows, 0 stalled, 0 failed, 0 on battery. **Every row for a given (input, vocab) has the same
-`merges_sha256`**, across engines, pre-tokenizers and threads. Results in `results/*.csv`, charts and `summary.md` in
-`results/plots/`, HF profiles in `results/profile_*.md`. The temporary corpora are deleted.
-- **Phase 3 vs IncrSerial (`batch.csv`, median of 5, baseline = serial/incr-serial at 1 thread as in `plot.py`):**
-  wikitext.full v32k: incr-batch 1.63× at 5 threads, 1.38× at 11; incr-par 1.15× / 0.96×. v100k: incr-batch 1.31× /
-  1.11×; incr-par 1.07× / 0.91×. (The S8 commit message and an earlier draft of this note said 1.65× / 1.36×: those used
-  the median of every IncrSerial row as the baseline. Quote the figures here, which match the plots and the Studio.)
-  The B4 sweep's 1.83× came with a slower IncrSerial run; incr-batch itself took the same time.
-- TinyStories phase 3 is about 50–90 ms, so no engine gains there: incr-batch is 0.97–1.01× at 3–5 threads and 0.76× at 11.
-  (Later finding, B8: at 5 threads that is parity with IncrSerial, not overhead; the 11-thread loss comes from the
-  E-cores and `--merge-threads auto` removes it.)
-- **Total vs serial IncrSerial at 1 thread:** wikitext.full v32k 3.40× (5 threads) and 3.91× (11); tinystories.1G 4.44×
-  and 6.23×. Phase 1 dominates, so totals track the pre-tokenizer.
-- `scale`: tinystories.full (2.2 GB) 20.4 s → 3.3 s at 11 threads; wikitext.x6 29.9 s → 6.3 s. wikitext.x6 phase 3
-  equals wikitext.full's (same unique words), incr-batch 1.64× at 5 threads.
-- Span (full rounds): wikitext.full 12.4× fewer steps at v32k, 4.7× at v100k; TinyStories 1.8–3.1×.
-- Owner load (hashed vs contiguous): wikitext.full 2.30 → 1.08 at T=5, 4.02 → 1.18 at T=11; tinystories.1G 2.20 → 1.18,
-  3.82 → 1.41. v32k and v100k are identical because every step of ≥ 4096 tokens happens within the first 32k merges.
-- Weak scaling of phase 1 (~50 MB per thread): efficiency 0.92 at 5 threads, 0.57 at 11. (An earlier 0.46 came from a
-  `plot.py` bug: the weak chart also picked up wikitext.full rows, which are ~50 MB per thread at 11 threads. Fixed in S9.)
-- HF `tokenizers` on the 100M slices, 11 threads: 4.08 s (WikiText) and 4.00 s (TinyStories) against our 0.46 s and
-  0.18 s. One run per row, and HF breaks ties differently, so its merge count differs slightly (see `profiling.md`).
-- The Mac left mains power once, during `scale`. The partial CSV went to `runs/` and `scale` was rerun from the start.
-
-### B6 (2026-11-07)
-- `--trace FILE` writes Chrome Trace Event JSON (ui.perfetto.dev). Kinds: CHUNK, PRETOK_UNIT, SHARD_REDUCE, SELECT,
-  SERIAL_APPLY, OWNER_MERGE, ZERO_SWEEP, ORDER_UPDATE. `src/trace.hpp` lists what each one's `arg` counts.
-- Off = one global pointer test per event site. Each thread appends to its own `alignas(64)` buffer; the file is written
-  after the run's clock stops. IncrSerial's merge path has no hooks; phase 1 hooks are shared by all engines.
-- **CPU labels are samples:** `pthread_cpu_number_np` at each event's start (about 1 ns). Threads migrate freely: in a
-  probe, every one of 11 OpenMP threads ran on nearly all 11 CPUs. P/E comes from `hw.perflevel1.logicalcpu` (6) with
-  Apple's E-first numbering, which ioreg's `cluster-type` confirms here (CPUs 0–5 E, 6–10 P).
-- Overhead (mains, `wikitext.full`, 5 threads, median of 7, interleaved): trace off vs the pre-B6 binary is within noise;
-  on costs +0.0% (v32k) and +1.2% (v100k) of phase 3. **Baseline re-measured:** IncrSerial phase 3 0.601 s (v32k) and
-  0.887 s (v100k); incr-batch 0.360 s and 0.645 s, as in S8. No S8 rerun.
-- What a 5-thread v32k trace shows: 19,888 SELECTs average 3.6 µs; phase 3 busy time is 304 ms on the master and about
-  124 ms on each worker, so the master's serial work bounds the speedup. At 5 threads the samples were almost all P-cores
-  (OWNER_MERGE E-share 0–3%).
-- 90/90 in Release and Debug. Matrix 0 mismatches on both slices. Mutations: 4 of 4 caught (one after adding a test
-  for a run that exhausts its pairs).
-- `scripts/trace_summary.py` validates a trace and prints the per-kind table.
-
-### B7 (2026-11-07)
-- `python3 -I studio/serve.py`, then http://127.0.0.1:8765/. It trains with `--trace` into `runs/studio/<id>/`, and
-  caches the IncrSerial reference per input and vocab in `runs/studio/ref/`. `#end&p3&light` in the URL gives a still.
-- Safety: bound to 127.0.0.1, Host header must be 127.0.0.1/localhost (DNS rebinding), POSTs must be JSON, inputs are
-  `*.txt` directly under `data/` after `resolve()` (no traversal, no symlinks out), run ids and CSV names are
-  regex-checked, every subprocess is an argument list.
-- `HTTPServer.server_bind` does a reverse DNS lookup that stalled 35 s on this network; `serve.Server` skips it.
-- Viewer: swimlanes coloured by kind of work (palette slots 1–5), P/E badge per lane = share of traced time sampled on
-  each core type, E-core strip, hover per event, table view. Merges land when a round's ORDER_UPDATE ends. Span curve,
-  exactness badge (shown when the replay reaches the end of phase 3), Amdahl / phase-3 / owner-load charts with the
-  same baseline as `plot.py`, theorem card, HF encode panel.
-- Demo run (wikitext.full v32k, 11 threads): identical to IncrSerial; default mode 19,888 rounds, full rounds 2,561
-  (12.4× fewer, max 59). At 11 threads, 6 of the 11 lanes were sampled almost entirely on E-cores during phase 3.
-- **Contradictions with the draft demo script**, recorded in `docs/notes/demo.md`: phase 1 is 5.1× on wikitext.full
-  (the 7× was tinystories.1G in S4; S8 gives 6.4×); 2,561 rounds, not 3,409.
-- **Baseline correction:** the S8 notes first quoted phase-3 speedups against the median of every IncrSerial row. The
-  plots use serial/incr-serial at 1 thread; the S8 section above now uses that (incr-batch 1.63× at 5 threads, v32k).
-
-### S9 (2026-11-08)
-- `report/report.pdf`, 8 pages, built with tectonic (installed with the user's approval). Numbers come from
-  `report/numbers.py` → `numbers.tex`, so rerunning it after new benchmarks updates the report.
-- Found while writing: **`plot.py`'s weak-scaling chart mixed in other configs** (fixed; 0.46 → 0.57 at 11 threads), and
-  the S8 notes had used a different IncrSerial baseline from the plots (corrected above). `results/` gained the B6
-  overhead table and trace summaries so every quoted number has a file behind it.
-- N6 follow-ups done: BatchBPE §3.6 quoted from the paper; two-phase BoundlessBPE read in full. Neither changes the claim.
-- **Environment change:** installing tectonic upgraded Homebrew's pcre2 to 10.49 (Unicode 17). PCRE2 10.45 is now built
-  locally and linked statically; see Environment notes.
-
-### B8 (2026-11-09)
-- `--merge-threads N|auto`: phase 3 gets its own team size; `auto` = P-cores (5 here), at most `--threads`. Default
-  unchanged. Details on the B8 card in `docs/TASKS.md`.
-- Indicative (battery) on wikitext.full v32k, incr-batch, 3 runs each: phase 3 at `--threads 11 --merge-threads 5` took
-  0.367–0.379 s against 0.371–0.375 s at `--threads 5` and 0.429–0.433 s at `--threads 11`. Idle libomp workers left
-  from the 11-thread phase 1 don't slow the smaller team, so no `omp_pause_resource_all` was added. merges.txt sha
-  unchanged (356e9836…).
-- **Contradiction reported:** the planned "serial fallback for tiny merge phases" rested on TinyStories' 0.94×, which
-  is a baseline effect (see the B8 card). Replaced by a report correction.
-- Equivalence matrix incl. 16 mixed cases: 0 mismatches on both 10 MB slices.
-
-### B9 (2026-11-13)
-- Studio gained **the race**: 2–3 finished runs on the same corpus and vocab replayed on one clock (lane A = baseline),
-  each with a progress bar (merges landed: traced rounds for incr-batch, spread evenly over the measured phase 3 for
-  the serial engines), a phase label, a clock, and an 11-tile core map (P row cpus 6–10, E row 0–5) lit from the
-  trace's sampled CPUs over a 0.5 % look-back window. Finish: 🏁 + "N× faster than A"; badge = all sha256 equal.
-- `serve.py`: `GET /api/runs` (newest first, 50), `merge_threads` on `/api/run` (`"auto"` or 1–64, parallel engines
-  only). Tests: 3 new in `tests/studio/test_serve.py` (12 total); dropping the validation fails 2 (mutation caught).
-- `parseTrace()` factored out of `loadRun()`; p1End now also uses the measured chunk + pretok time (serial pretok is
-  untraced per unit). URL stills: `#race&at=0.3`, `#race&end`.
-- Verified headless (Chrome `--dump-dom` + screenshots) on wikitext.10M v4000: serial 0.154 s, incr-batch t11+auto
-  0.072 s, t11 0.079 s, all identical; with `auto` only cpus 6–10 light in phase 3. Teaching note: `docs/notes/race.md`.
-
-### B10 (2026-11-13)
-- Studio card **The work**: phase-1 work units (corpus order, per-thread counts) and phase-3 real words rewritten per
-  round, by the thread that ran their owner. Details and what it doesn't show: `docs/notes/work_view.md`.
-- Trace format: `PRETOK_UNIT` gains `"unit"` (second argument; other kinds unchanged). New `--trace-words FILE`
-  (written after the clock stops; merges unchanged). `serve.py` passes it and serves `words.json`.
-- Measured on wikitext.full, 11 threads: 508 units, 45–47 per thread; units that started on an E-core took a median
-  15.7 ms against 17.3 ms on a P-core. So start-of-event core samples are weak for long events. The race's and
-  swimlanes' phase-1 P/E labels carry the same caveat; phase-3 events are microseconds long.
-
-### Cleanup (2026-11-18)
-A repo-wide consistency pass at the user's request (report first, then fixes; plan approved). Three commits:
-- **Docs:** README build that works (PCRE2 10.45 via `scripts/build_pcre2.sh`), real usage example, status table
-  replaced by links; this file's "Current state" became the log; "What exists" rebuilt; `report.pdf` tracked;
-  requirements: `pyarrow` in, unused `tiktoken`/`datasets` out; stray `.gitkeep` files removed.
-- **C++:** `encode` stub subcommand and `trace_arg_name` removed; `src/sysctl.hpp` (one helper; timings.json's
-  `performance_cores` now uses `performance_cores()`); one `NamedValue` table per enum for CLI + timings.json;
-  chunker per-thread lists padded to 64 bytes; `tests/unit/trace_test_util.hpp`; stale comments fixed.
-- **Tooling/Studio:** `bench/results.py` loads rows for plot.py, numbers.py and kill_check.py (warm-ups, stalls
-  `wall > 2 x CPU + 0.05 s`, "n/a" kept, phase 1 = chunk + pretok) + `power_source()`; test `tests/bench/
-  test_results.py` (CTest `bench_results`, skips without the .venv); plot.py's phase-1 panel is now chunk +
-  pre-tokenize (matches the report text), phase plots only for configs with a baseline (10 noise PNGs deleted);
-  dead "not implemented" branches gone; `studio.js`: one bisect, one player for replay and race, one `#at=`
-  parser, dead fields and a double render removed, stall filter on owner-load rows; `batchsim` is a CMake target.
-- Verified: numbers.tex byte-identical; summary.md identical except the corrected stall wording; kill_check output
-  identical; Studio DOM text identical at three replay points; 100/100 tests in both builds (+ bench_results);
-  matrix 0 mismatches on both 10 MB slices; mutations caught (stall filter dropped: 2 tests fail).
-- **Open (user's call):** plot.py pools the IncrSerial baseline over all main CSVs, numbers.py uses each CSV's
-  own; the wikitext.full v32k figure shows 3.83× total where the text says 3.91×.
-
-### B8 benchmark + S9 update (2026-11-18, mains power)
-- `bench/configs/merge_threads.yaml` → `results/merge_threads.csv` (84 configs × 5, 0 failures, 0 stalls, one sha per
-  input and vocab) and `results/plots/merge_threads.png`.
-- Predictions (written before the run): (1) wikitext t11+auto phase 3 within 5% of t5: **met**, +0.2% at 32k
-  (378.8 vs 378.1 ms), +0.9% at 100k; absolute 0.379 s, not the 0.36 s guessed, but t5 moved by the same amount.
-  (2) total at t11+auto ≤ t11 and ≤ t5: **met on wikitext** (1.48 s vs 1.52 / 1.76 s at 32k), **missed on TinyStories**
-  by 2–4% (1.58 vs 1.52 s at 32k). The miss is in phase 1 (1.53 vs 1.45 s), which the setting doesn't touch; phase 1
-  was slower in all four auto cases and every auto run followed its all-threads run, so run order (heat) is the likely
-  cause, not tested. (3) TinyStories t11+auto merge ≈ 51 ms: **met**, 52.3 ms (64.5 ms with all threads).
-- incr-par recovers too (wikitext 32k at 11 threads: 1.04× → 1.21× with its own baseline).
-- Report: new §8.2 "Merging on the performance cores" (figure + numbers from `merge_threads.csv`, with its own
-  IncrSerial baseline, 645.6 ms), TinyStories paragraph and Limits point to it, conclusion and Reproducing updated, the
-  hash-row count is now computed (`\hashRows`, 2,736 rows, and numbers.py stops if any input has two hashes).
-
-### Figures follow the text; report review (2026-11-18)
-- `plot.py` `pick_sources()`: each headline figure uses one CSV (most merge engines, then strategies) with its own
-  IncrSerial baseline, the rule numbers.py uses; the owners figure uses owners.csv. wikitext.full v32k figure now reads
-  3.91× / 5.06× / 1.63×, equal to the text (was 3.83× from a pooled baseline). `results.read()` adds `source`.
-- Amdahl serial fractions were typed into report.tex (0.188 / 0.132, pooled); now macros from batch.csv via the shared
-  `results.amdahl_fit` (0.169 / 0.120 at 32k, 0.241 / 0.186 at 100k), equal to amdahl.png's fits.
-- Report review: a hard-coded "Section 8.3" (now `\ref`, §8.4 after the new §8.2); the equivalence-matrix bullet now
-  mentions mixed merge teams. Every other number is a macro. Builds without warnings.
-- Demo dry run: every number demo.md quotes matches Studio (3.98× / 5.06× phase 1, 1.15× / 1.63× / 1.38× phase 3,
-  owner load 2.30 → 1.08, 19,888 rounds, badge ✓, Hugging Face encode ok).
-- `bench/configs/merge_threads_order.yaml` (auto first) is ready for mains power; plot.py keeps it out of the S8 and
-  merge_threads figures.
-
-## What exists
+## Where things are
 | Path | What it is |
 |---|---|
-| `SPEC.md` | The training spec + file formats (§6): the contract every engine and the Python reference follow |
-| `STATE.md` | One screen: where the project is now, what's next, traps, and an index into the docs |
-| `docs/PLAN.md`, `docs/TASKS.md`, `docs/notes/` | Architecture and method; task cards; topic notes (batched merging proof, profiling, related work, demo, race, work view) |
-| `include/parabpe/` | Public API: `types.hpp` (`TrainConfig`, `WordTable`, …), `corpus.hpp`, `regex.hpp`, `pretokenizer.hpp`, `merge_engine.hpp`, `trainer.hpp`, `io.hpp` |
-| `src/corpus.cpp`, `src/regex.cpp` | mmap + UTF-8 check + parallel special-token chunker (S1, S10); PCRE2 wrapper with per-thread `Matcher` |
-| `src/pretok_{serial,omp}.cpp` | Phase 1 pre-tokenizers (S1, S4) |
-| `src/word_table.cpp`, `src/bpe_common.hpp` | Word table; shared merge rules (tie-break, merge count) |
-| `src/merge_naive.cpp` | NaiveSerial and NaivePar (S2, S7) |
-| `src/incr_common.hpp`, `src/merge_incr.cpp` | Owners, sharded pair counts, parallel steps; IncrSerial and IncrPar (S3, S5, S6) |
-| `src/batch_select.hpp`, `src/merge_batch.cpp` | IncrBatch: round selection (the batch rule), parallel rounds, `--verify-batches` oracle (B0–B5) |
-| `src/strategies.{hpp,cpp}` | Factory dispatch from the strategy enums to the engines |
-| `src/trainer.cpp` | The pipeline: `count_words`, `train_text`, `train`; `--merge-threads` resolution (B8) |
-| `src/io.cpp` | `bytes_to_unicode`, `build_vocab`, byte-exact writers, `timings.json` |
-| `src/trace.{hpp,cpp}`, `src/trace_words.{hpp,cpp}` | `--trace` (Chrome Trace JSON, B6) and `--trace-words` (B10) |
-| `src/main.cpp` | CLI11 `train` command |
-| `tests/unit/` | GoogleTest suites (golden files, chunker, pre-tokenizer, engines, batching, trace, merge threads) |
-| `tests/golden/` | 11 reference cases from `reference/make_golden.py` + `unicode_classes.txt` |
-| `tests/equivalence/run_matrix.py` | Every strategy × threads {1,2,3,4,8,16} (+ mixed merge teams) must give identical merges; CTest `slow` |
-| `tests/interop/check_hf.py`, `tests/studio/test_serve.py` | Hugging Face `tokenizers` token-id check; Studio server guards |
-| `reference/` | Python oracle `bpe_ref.py`, `make_golden.py`, its tests, version + byte-format notes |
-| `bench/` | `run_bench.py` (YAML configs → `results/*.csv`), `plot.py`, `kill_check.py` (B4 gate), `results.py` (shared row rules) |
-| `results/` | Benchmark CSVs, `plots/` (+ `summary.md`), profiling and trace summaries (committed) |
-| `report/` | `report.tex` (+ `report.pdf`), `numbers.py` → `numbers.tex` (every number from `results/`) |
-| `studio/` | ParaBPE Studio: `serve.py` (stdlib, 127.0.0.1) + `index.html`/`studio.js`/`studio.css` |
-| `scripts/` | `build_pcre2.sh`, data download/slicing, `profile_phases.py` (N8), `trace_summary.py`, `run_s8.sh` |
-| `tools/batchsim/` | Independent batching simulator (no project code on purpose): the B0 cross-check and negative controls |
-| `.github/workflows/ci.yml` | GCC Release, ASan and TSan (clang + LLVM libomp) jobs on Ubuntu |
+| `SPEC.md` | The training spec and file formats: the contract for every engine and the Python reference |
+| `include/parabpe/`, `src/` | Library and CLI; one file per strategy (`merge_naive`, `merge_incr`, `merge_batch`, `pretok_*`) |
+| `src/incr_common.hpp`, `src/batch_select.hpp` | Owners, sharded counts, parallel steps; the batch rule |
+| `src/trace*.{hpp,cpp}`, `src/sysctl.hpp` | `--trace`, `--trace-words`; macOS core counts |
+| `tests/` | `unit/` (GoogleTest), `golden/` (11 cases), `equivalence/run_matrix.py`, `interop/`, `studio/`, `bench/` |
+| `reference/` | Python oracle `bpe_ref.py`, `make_golden.py`, byte-format notes |
+| `bench/` | `run_bench.py` (YAML → `results/*.csv`), `plot.py`, `results.py` (row rules), `kill_check.py` |
+| `results/` | Benchmark CSVs, `plots/` + `summary.md`, profile and trace summaries |
+| `report/` | `report.tex` → `report.pdf`; `numbers.py` → `numbers.tex` (every number from `results/`) |
+| `studio/` | ParaBPE Studio (`serve.py` + viewer); guide in `docs/notes/studio.md` |
+| `scripts/` | PCRE2 build, data download and slicing, profiling spike, `trace_summary.py`, `run_s8.sh` |
+| `tools/batchsim/` | Independent batching simulator (no project code): the B0 cross-check |
+| `docs/notes/` | Batched-merging proof, profiling, related work, Studio guide |
 
-## Environment notes (developer Mac)
-- macOS on Apple Silicon (arm64). The default C++ compiler is **Apple clang 17** (`/usr/bin/c++`).
-  The `clang` on PATH is the **swiftly** toolchain, which CMake does not use.
-- `cmake` 3.29 is installed from **MacPorts** (`/opt/local/bin`). `libomp` 22 comes from **Homebrew**.
-- **PCRE2 (changed 2026-11-08):** `brew install tectonic` (S9) upgraded Homebrew's pcre2 to 10.49, which is Unicode 17:
-  `PCRE2.UnicodeVersionIsPinned` and the golden tests failed. PCRE2 10.45 is now built from source into `~/pcre2`
-  (`scripts/build_pcre2.sh ~/pcre2`, as CI does) and linked **statically**; `build` and `build-debug` are configured
-  with `-DPCRE2_INCLUDE_DIR=$HOME/pcre2/include -DPCRE2_LIBRARY=$HOME/pcre2/lib/libpcre2-8.a`. CMake now warns when it
-  finds a PCRE2 newer than 10.45. After the switch, `merges.txt` for wikitext.full v32k equals the S8 sha256 and the
-  matrix is clean. All results in `results/` predate the upgrade.
-- **TeX:** `tectonic` 0.17 (Homebrew), installed for S9 with the user's approval. `cd report && tectonic report.tex`.
-- **OpenMP on macOS:** `CMakeLists.txt` asks `brew --prefix libomp` for the install location and sets `OpenMP_CXX_FLAGS`, so `find_package(OpenMP)`
-  works with Apple clang. Don't remove that block.
-- PCRE2 is found with `find_path`/`find_library` plus Homebrew hints, because `pkg-config` is **not installed**.
-- Homebrew `llvm` is **not installed**. Apple clang's TSan fails at startup on macOS 27 ("Interceptors are not
-  working"); `brew install llvm` might give working ASan/TSan runtimes (untried). Until then TSan is CI-only.
-- **ASan is broken on this Mac (2026-11-02):** Apple clang 17 (SDK 15.5) on macOS 27 deadlocks in the ASan runtime's own
-  startup. Even a hello-world built with `-fsanitize=address` hangs, so `-DPARABPE_ASAN=ON` builds hang during test
-  discovery. Xcode 16.4 is installed and active and has the same clang, so it doesn't help; an Xcode that supports
-  macOS 27 (or `brew install llvm`) may fix it. Until then use UBSan locally:
-  `cmake -B build-ubsan -DCMAKE_BUILD_TYPE=Debug -DPARABPE_NATIVE=OFF -DPCRE2_INCLUDE_DIR=$HOME/pcre2/include -DPCRE2_LIBRARY=$HOME/pcre2/lib/libpcre2-8.a -DCMAKE_CXX_FLAGS="-fsanitize=undefined -fno-sanitize-recover=undefined" -DCMAKE_EXE_LINKER_FLAGS=-fsanitize=undefined`
-  and rely on the CI `asan` job for ASan.
-- **Python:** the repo venv `.venv` exists (Python 3.13.3, `requirements.txt` installed). Always use
-  `.venv/bin/python`: the system Python has no `regex`, and other `regex` versions break the Unicode pin.
-- The first configure downloads GoogleTest v1.15.2, CLI11 v2.4.2 and unordered_dense v4.4.0 with FetchContent, so it needs network access.
+## Log (one line per task; details in git history)
+| Date | Task | Outcome |
+|---|---|---|
+| 10-31 | N1, N2, N4 | Skeleton, CMake, CI; spec + interfaces; Python reference + 11 golden cases (Unicode 16 pinned) |
+| 11-01 | N3 | `get_data.sh` + `slice_data.py`: TinyStories and WikiText-103 slices, checksummed |
+| 11-02 | S1, S2 | Chunker + serial pre-tokenizer (golden `words.tsv`); WordTable, NaiveSerial, byte-exact writers |
+| 11-03 | S3 | IncrSerial: 125–266× faster merge phase than NaiveSerial; equivalence matrix in CTest |
+| 11-03 | S4, S10 | OMP pre-tokenizer (bucketed reduction, 7.0× at 11 threads on 1 GB); parallel chunker |
+| 11-03 | S5, S6, S7 | Parallel pair stats; IncrPar (1.14× at 5 threads, fork per big step); NaivePar |
+| 11-03 | N7, N8, G1 | Bench harness; profiling spike (phase 1 = 76–95% of serial time); modest-S6 decision |
+| 11-03–05 | B0–B3 | Batch rule + proof + `batchsim`; refactor; `incr-batch` plumbing; serial batched engine + oracle |
+| 11-07 | B4 | Hashed owners, parallel rounds; kill check passed (1.83× / 1.39× phase 3 at 5 threads) |
+| 11-06 | B5, N6 | Owner-map ablation (load 2.30 → 1.08); related work (no prior exact parallel batching found) |
+| 11-07 | S8 | All benchmarks on mains power: 2,232 rows, one hash per input; incr-batch 1.63× at 5 threads |
+| 11-07 | B6, B7 | `--trace` (+1.2% at most); ParaBPE Studio |
+| 11-08 | S9 | Report (tectonic); weak-scaling chart bug fixed; PCRE2 10.45 built locally |
+| 11-09 | B8 | `--merge-threads N\|auto` (phase 3 on P-cores); mixed teams in the matrix |
+| 11-13 | B9, B10 | Studio race (lockstep replay + core map); work view (units, real words per thread) |
+| 11-18 | Cleanup | Docs, C++ and tooling pass; `bench/results.py`; outputs verified unchanged |
+| 11-18 | B8 bench, S9 | `merge_threads.csv`: auto holds 1.70× at 11 threads; report §8.2; figures match text |
 
-## Benchmark machine (decided 2026-10-31)
-The user decided the 16-core requirement was ambitious, not a course rule. **Final benchmarks run on this Mac.**
-A 16-core machine is an optional extra (e.g. an AWS `c7a.4xlarge` or `c7g.4xlarge` = 16 physical cores, no SMT,
-for a few hours at the end).
-- Hardware: **Apple M3 Pro, 5 performance + 6 efficiency cores, 18 GB RAM**, no SMT.
-- Measured with a compute-bound OpenMP toy loop (2026-10-31, best of 3, `schedule(dynamic,1)`):
-
-  | threads | 1 | 2 | 3 | 4 | 5 | 6 | 8 | 11 | 16 |
-  |---|---|---|---|---|---|---|---|---|---|
-  | speedup | 1.00 | 1.96 | 2.80 | 3.46 | 4.15 | 4.66 | 5.21 | 6.30 | 7.65 |
-
-  Close to linear up to 5 (P-cores), then each E-core adds ~0.4 of a P-core. The ideal ceiling is ≈ 7.4
-  "P-core equivalents". `schedule(static)` was slightly worse (6.14× at 11). Memory-bound phases will scale less.
-- **No thread pinning on macOS:** with `OMP_PROC_BIND=close OMP_PLACES=cores`, `omp_get_num_places()` returns 0.
-  The bench harness can still set those variables (harmless here, useful on Linux).
-- **No `perf`.** Profile with Instruments (`xctrace record --template 'Time Profiler'`).
-- Benchmark hygiene on the laptop: on mains power, nothing else running, lid open/cool. Record this in the report.
-- Report framing: threads {1,2,3,4,5} as the P-core region and {6,8,11} as the heterogeneous region. Phases with
-  static owner partitioning (S5, S6) are gated by the slowest core; that is a finding, not a bug.
-- The equivalence matrix still uses threads {1,2,3,4,8,16}. Oversubscription (16 on 11 cores) is fine for correctness.
-
-## Decisions already made (don't re-litigate)
-- C++20 + OpenMP. `std::thread` and MPI are optional, only if ahead of schedule.
-- PCRE2, not RE2 (RE2 lacks the lookahead the pattern needs). `ankerl::unordered_dense` instead of `std::unordered_map`.
-- **IncrSerial is the official speedup baseline.** NaiveSerial and NaivePar run only on small configurations.
-- Chunking happens only at special-token (document) boundaries, never at `\n\n` (SPEC §2).
-- Tie-break on the tuple `(bytes(a), bytes(b))` (SPEC §4).
-- TSan needs clang + LLVM libomp. GCC's libgomp reports false races.
-- Expected IncrPar speedup is 1–2×. The report's centrepiece is the per-phase Amdahl story.
-
-## Open questions for the user / team
-- The team still needs to review `SPEC.md` and the interfaces (N2). The current text is a draft written by the agent.
-- Team size and who owns which task (`docs/PLAN.md` §7 suggests a split for 3 people).
-- Big-machine access (N5) is optional now (see "Benchmark machine"). Not arranged.
-- Submission deadline: not recorded. Add it here once known.
+## Open
+- Run-order test for the TinyStories phase-1 miss: `bench/configs/merge_threads_order.yaml` (mains power, ~3 min).
+- SPEC.md and the interfaces were drafted by the agent; the team review (N2) never happened.
+- Submission deadline: not recorded.

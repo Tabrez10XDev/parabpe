@@ -1,83 +1,137 @@
-# ParaBPE: Parallel Byte Pair Encoding Tokenizer Training
+# ParaBPE: exact parallel BPE tokenizer training
 
-ParaBPE trains a byte-level BPE tokenizer (GPT-2/Llama style) in parallel on multicore CPUs,
-using C++20 and OpenMP. Every parallel variant must produce **exactly the same merges** as the
-serial baseline, and speedup is measured against the best serial implementation.
+[![CI](https://github.com/Tabrez10XDev/parabpe/actions/workflows/ci.yml/badge.svg)](https://github.com/Tabrez10XDev/parabpe/actions/workflows/ci.yml)
 
-- [SPEC.md](SPEC.md): the training spec (chunking, pair counting, tie-break, output format)
-- [docs/PLAN.md](docs/PLAN.md): the architecture, milestones, benchmark methodology and timeline
-- [docs/TASKS.md](docs/TASKS.md): the task board with acceptance criteria
-- [STATE.md](STATE.md): where the project is right now (one screen); the place to start
-- [docs/HANDOFF.md](docs/HANDOFF.md): dated per-task log and environment notes
+ParaBPE trains a byte-level BPE tokenizer (GPT-2 style) on a multicore CPU with C++20 and OpenMP. Every parallel
+variant produces a `merges.txt` and `vocab.json` that are **byte-for-byte identical** to the serial baseline, at every
+thread count.
 
-## Build
+The merge phase of BPE looks inherently serial: each merge depends on the one before. ParaBPE's `incr-batch` engine
+merges several pairs per parallel round, and a proof shows each round equals the next steps of sequential BPE,
+including order and tie-breaking.
 
-Requirements: CMake ≥ 3.20, a C++20 compiler, OpenMP and **PCRE2 exactly 10.45**. The spec pins Unicode 16.0;
-Homebrew's PCRE2 is newer (Unicode 17) and Ubuntu's is older, so build 10.45 once with the script:
+**Results** (Apple M3 Pro, 5 performance + 6 efficiency cores; WikiText-103, 540 MB, vocabulary 32k; median of 5,
+against the serial incremental trainer):
 
+| | Speedup |
+|---|---|
+| Merge phase, `incr-batch`, 5 threads | **1.63×** (one merge per step: 1.15×) |
+| Merge phase, 11 threads with `--merge-threads auto` | **1.70×** (without: 1.47×) |
+| Whole run, 11 threads | **3.91×** |
+| Sequential steps with batched rounds | 2,561 rounds for 31,743 merges (**12.4× fewer**) |
+
+The full write-up is in [report/report.pdf](report/report.pdf).
+
+## Quick start
+
+### 1. Install the tools
+- **macOS:** `brew install cmake libomp` (Xcode command-line tools provide clang)
+- **Ubuntu:** `sudo apt install cmake g++ curl`
+
+You also need Python 3.11+ for the tests, benchmarks and the Studio viewer.
+
+### 2. Build PCRE2 10.45 (once)
+The spec pins Unicode 16, which needs exactly PCRE2 10.45. Homebrew's version is too new and Ubuntu's too old, so the
+repo builds its own copy:
 ```bash
-# macOS: brew install cmake libomp     Ubuntu: sudo apt install cmake
 scripts/build_pcre2.sh ~/pcre2
+```
+
+### 3. Build and test
+```bash
 cmake -B build -DCMAKE_BUILD_TYPE=Release \
   -DPCRE2_INCLUDE_DIR=$HOME/pcre2/include -DPCRE2_LIBRARY=$HOME/pcre2/lib/libpcre2-8.a
 cmake --build build -j
 ctest --test-dir build --output-on-failure
-python3 -m venv .venv && .venv/bin/pip install -r requirements.txt   # Python tooling, Studio, benchmarks
 ```
+The first configure downloads GoogleTest, CLI11 and unordered_dense, so it needs network access. All tests pass
+without any dataset; the equivalence matrix is skipped until `data/` exists (step 5).
 
-Sanitizer builds: `-DPARABPE_ASAN=ON` or `-DPARABPE_TSAN=ON` (TSan needs clang with LLVM libomp). Both run in CI; on
-the developer Mac (macOS 27) the local ASan and TSan runtimes hang at startup, so use UBSan there (docs/HANDOFF.md).
-
-## Usage
-
+### 4. Train on a bundled sample (no download)
 ```bash
-scripts/get_data.sh wikitext       # data/wikitext.{10M,100M,full}.txt
-./build/parabpe train --input data/wikitext.full.txt --vocab-size 32000 --threads 11 \
-    --merge-threads auto --pretok omp --merge incr-batch --out runs/wikitext-32k
+./build/parabpe train --input tests/golden/unicode/input.txt --vocab-size 300 \
+  --threads 4 --pretok omp --merge incr-batch --out runs/sample
+cat runs/sample/merges.txt runs/sample/timings.json
 ```
+Run it again with `--merge incr-serial --out runs/sample-serial`: `merges.txt` is identical.
 
-| Flag | Values |
+### 5. Train on a real corpus
+```bash
+python3 -m venv .venv && .venv/bin/pip install -r requirements.txt
+scripts/get_data.sh wikitext        # downloads WikiText-103 (a few hundred MB)
+.venv/bin/python -I scripts/slice_data.py --source wikitext --sizes 10M,100M
+./build/parabpe train --input data/wikitext.full.txt --vocab-size 32000 \
+  --threads 11 --merge-threads auto --pretok omp --merge incr-batch --out runs/wikitext-32k
+```
+Use your machine's core count for `--threads`. `--merge-threads auto` runs the merge phase on the performance cores
+only (on Apple Silicon); elsewhere it uses every thread. `scripts/get_data.sh tinystories` fetches TinyStories (2.2 GB).
+
+### 6. Watch it in ParaBPE Studio (optional)
+```bash
+python3 -I studio/serve.py        # then open http://127.0.0.1:8765/
+```
+Train a run from the page and replay what every thread did: per-thread swimlanes, the corpus filling in work unit by
+work unit, real words merging round by round, a side-by-side race against the serial trainer, and an exactness badge.
+Guide and demo script: [docs/notes/studio.md](docs/notes/studio.md).
+
+## Command-line options
+
+`parabpe train --input FILE --out DIR [options]`, or `./build/parabpe train --help` for the full list.
+
+| Option | Values |
 |---|---|
+| `--vocab-size` | target vocabulary size (default 32000) |
+| `--threads` | threads for pre-tokenizing (and merging, unless `--merge-threads`) |
+| `--merge-threads` | `N` or `auto` (the performance cores) for the merge phase |
 | `--pretok` | `serial`, `omp` |
-| `--merge` | `naive-serial`, `incr-serial`, `naive-par`, `incr-par`, `incr-batch` |
-| `--merge-threads` | `N` or `auto`: thread count for phase 3 (merging); default = `--threads`. `auto` = the performance cores, at most `--threads` (5 on the M3 Pro), so phase 1 can use every core while merging stays off the E-cores |
-| `--par-threshold-tokens` | IncrPar, incr-batch: minimum tokens touched in a step before the work is split across threads |
-| `--verify-batches` | incr-batch: check every member against a sequential oracle |
-| `--batch-full-rounds` | incr-batch: batch every round, even ones too small to go parallel (the span figures) |
-| `--trace-words FILE` | The 400 most frequent words (4+ bytes) with their phase-3 owner, as JSON (for Studio) |
-| `--trace FILE` | Chrome Trace Event JSON of phases 1 and 3 per thread, with the sampled CPU and P/E core; open in ui.perfetto.dev, summarise with `scripts/trace_summary.py` |
+| `--merge` | `naive-serial`, `incr-serial` (the baseline), `naive-par`, `incr-par`, `incr-batch` |
+| `--verify-batches` | `incr-batch`: check every merge against a sequential engine while training |
+| `--trace FILE` | per-thread event trace (Chrome Trace JSON; open in ui.perfetto.dev) |
 
-## ParaBPE Studio
+Outputs: `merges.txt` and `vocab.json` (the GPT-2 formats, loadable by Hugging Face `tokenizers`) and `timings.json`
+(phase times, configuration, hardware).
 
+## How exactness is checked
+- **Golden files:** 11 small corpora whose outputs come from an independent Python reference (`reference/bpe_ref.py`).
+- **Equivalence matrix:** every pre-tokenizer × engine at 1, 2, 3, 4, 8 and 16 threads on two 10 MB corpora must hash
+  identically (`tests/equivalence/run_matrix.py`).
+- **Runtime oracle:** `--verify-batches` replays each batched round against sequential BPE.
+- **Benchmarks:** every one of the 2,736 benchmark runs records its `merges.txt` hash; each corpus and vocabulary has one.
+- **Interop and sanitizers:** the output loads into Hugging Face `tokenizers` with matching token ids; CI runs GCC,
+  AddressSanitizer and ThreadSanitizer on every push.
+
+## Reproduce the benchmarks and report
+On mains power, nothing else running:
 ```bash
-python3 -I studio/serve.py      # then open http://127.0.0.1:8765/
+# one grid; the others are in bench/configs/
+.venv/bin/python -I bench/run_bench.py bench/configs/batch.yaml --require-ac
+.venv/bin/python -I bench/plot.py results/*.csv --out-dir results/plots
+.venv/bin/python -I report/numbers.py && (cd report && tectonic report.tex)
 ```
 
-Trains a run with `--trace` on a corpus in `data/`, replays it per thread with P/E-core samples, shows each round's
-merges landing and the span curve, checks `merges.txt` against an IncrSerial reference (sha256), plots
-`results/*.csv`, and encodes a sentence with Hugging Face `tokenizers` (needs `.venv`). **The race** replays two or
-three recorded runs side by side on one clock (IncrSerial on 1 thread against incr-batch with `--merge-threads auto`),
-with a core map of the M3 Pro lighting up per lane; what it shows and what it doesn't is in
-[docs/notes/race.md](docs/notes/race.md). **The work** shows the same replay on the data: the corpus's work units filling in, then real words of the run fusing round by round, grouped by the thread that rewrote them ([docs/notes/work_view.md](docs/notes/work_view.md)). The server listens on 127.0.0.1 only and accepts only `*.txt` files
-directly under `data/`. The demo script is in [docs/notes/demo.md](docs/notes/demo.md).
-
-## Layout
-
+## Repository layout
 ```
-include/parabpe/   public interfaces (types, corpus, regex, pretokenizer, merge_engine, trainer, io)
-src/               implementations, one file per strategy
-reference/         Python oracle (bpe_ref.py), the spec-exact reference for tiny corpora
-tests/             unit/, equivalence/ (strategy × threads), golden/, interop/ (Hugging Face), studio/
-bench/             run_bench.py, plot.py, configs/
-results/           benchmark CSVs and plots (committed)
-scripts/           PCRE2 build, data download + slicing, profiling spike, trace_summary.py
-tools/batchsim/    independent batching simulator (the B0 cross-check)
-studio/            ParaBPE Studio (serve.py + a no-build viewer)
-report/            LaTeX report (report.tex, report.pdf) and numbers.py
-docs/              plan, task board, handoff log, notes
+include/parabpe/   public API headers
+src/               implementation, one file per strategy (pretok_*, merge_*)
+tests/             unit/ (GoogleTest), golden/, equivalence/, interop/, studio/, bench/
+reference/         Python reference trainer (the oracle) and golden-file generator
+bench/             benchmark runner, plots, shared row rules, configs/
+results/           benchmark CSVs and plots
+report/            report.tex, report.pdf, numbers.py
+studio/            ParaBPE Studio (local server + viewer)
+scripts/           PCRE2 build, data download and slicing, profiling, trace summary
+tools/batchsim/    independent batching simulator (cross-check of the batch rule)
+docs/              PLAN (architecture), TASKS, HANDOFF (environment, log), notes/
 ```
 
-## Status
+## Documentation
+- [SPEC.md](SPEC.md): the training rules and file formats every engine follows
+- [docs/PLAN.md](docs/PLAN.md): architecture, engines, verification and benchmark method
+- [docs/notes/batched_merging.md](docs/notes/batched_merging.md): the batch rule and its proof
+- [docs/notes/studio.md](docs/notes/studio.md): Studio guide and demo script
+- [STATE.md](STATE.md) and [docs/HANDOFF.md](docs/HANDOFF.md): status, environment notes and project log
 
-All tasks are done except the B8 benchmark (needs mains power) and the report's final review. Per-task
-status: [docs/TASKS.md](docs/TASKS.md); where things stand now: [STATE.md](STATE.md).
+## Notes
+- macOS can't pin threads, so results report 1–5 threads (performance cores) apart from 6–11 (efficiency cores join).
+- AddressSanitizer and ThreadSanitizer hang at startup on macOS 27 with Apple clang; they run in CI on Ubuntu.
+- Datasets are not included (`data/` is created by the scripts).
