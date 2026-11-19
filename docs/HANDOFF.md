@@ -1,7 +1,7 @@
 # Handoff
 
-Where the project stands **now**: [STATE.md](../STATE.md). This file holds what doesn't change often: the machine,
-the decisions, the lessons, and a one-line log per task. The full per-task notes are in git history
+What doesn't change often: the machine, the decisions, the lessons, and a one-line log per task (task status is in
+[TASKS.md](TASKS.md)). The full per-task notes are in git history
 (`git show 6b378a8:docs/HANDOFF.md`).
 
 ## Environment (developer Mac)

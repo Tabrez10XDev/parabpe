@@ -129,7 +129,7 @@ docs/              PLAN (architecture), TASKS, HANDOFF (environment, log), notes
 - [docs/PLAN.md](docs/PLAN.md): architecture, engines, verification and benchmark method
 - [docs/notes/batched_merging.md](docs/notes/batched_merging.md): the batch rule and its proof
 - [docs/notes/studio.md](docs/notes/studio.md): Studio guide and demo script
-- [STATE.md](STATE.md) and [docs/HANDOFF.md](docs/HANDOFF.md): status, environment notes and project log
+- [docs/HANDOFF.md](docs/HANDOFF.md) and [docs/TASKS.md](docs/TASKS.md): environment notes, lessons, project log, task status
 
 ## Notes
 - macOS can't pin threads, so results report 1–5 threads (performance cores) apart from 6–11 (efficiency cores join).

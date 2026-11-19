@@ -56,7 +56,7 @@ def main():
         print(f"skip: {args.input} not found (run scripts/get_data.sh + slice_data.py)")
         return SKIP
     if 3 not in args.threads:
-        print("warning: threads=3 is required for the equivalence check (CLAUDE.md)")
+        print("warning: threads=3 is required for the equivalence check (an odd count catches uneven splits)")
 
     failures = []
     with tempfile.TemporaryDirectory(prefix="parabpe_matrix_") as tmp:

@@ -13,7 +13,7 @@ using namespace parabpe;
 namespace {
 
 // Every merge engine. Parallel engines run at every thread count of the equivalence check
-// (CLAUDE.md), serial ones once.
+// ({1,2,3,4,8,16}), serial ones once.
 const std::vector<MergeStrategy> kEngines = {MergeStrategy::NaiveSerial, MergeStrategy::IncrSerial,
                                              MergeStrategy::NaivePar, MergeStrategy::IncrPar,
                                              MergeStrategy::IncrBatch};
